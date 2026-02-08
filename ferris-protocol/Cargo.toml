@@ -1,0 +1,22 @@
+[package]
+name = "ferris-protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "RESP2 and RESP3 protocol codec for ferris-db"
+
+[dependencies]
+bytes.workspace = true
+tokio-util = { workspace = true, features = ["codec"] }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

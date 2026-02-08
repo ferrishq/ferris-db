@@ -1,0 +1,30 @@
+[package]
+name = "ferris-commands"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Command implementations for ferris-db"
+
+[dependencies]
+ferris-core.workspace = true
+ferris-protocol.workspace = true
+ferris-persistence.workspace = true
+
+bytes.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+glob-match.workspace = true
+rand.workspace = true
+ordered-float.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+ferris-test-utils.workspace = true
+proptest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

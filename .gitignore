@@ -1,0 +1,37 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+/coverage/
+*.profraw
+*.profdata
+tarpaulin-report.html
+cobertura.xml
+
+# AOF and persistence files
+*.aof
+*.rdb
+dump.rdb
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.bak

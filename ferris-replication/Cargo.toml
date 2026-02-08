@@ -1,0 +1,29 @@
+[package]
+name = "ferris-replication"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Replication and cluster support for ferris-db"
+
+[dependencies]
+ferris-core.workspace = true
+ferris-protocol.workspace = true
+
+tokio.workspace = true
+bytes.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+crc16.workspace = true
+rand.workspace = true
+uuid.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+ferris-test-utils.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

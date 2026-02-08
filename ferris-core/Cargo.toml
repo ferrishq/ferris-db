@@ -1,0 +1,32 @@
+[package]
+name = "ferris-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Core data structures and storage engine for ferris-db"
+
+[dependencies]
+bytes.workspace = true
+dashmap.workspace = true
+parking_lot.workspace = true
+ordered-float.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+glob-match.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[bench]]
+name = "keystore"
+harness = false
+
+[lints]
+workspace = true

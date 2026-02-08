@@ -1,0 +1,27 @@
+[package]
+name = "ferris-queue"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Distributed queue implementation for ferris-db"
+
+[dependencies]
+ferris-core.workspace = true
+
+bytes.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+serde.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+ferris-test-utils.workspace = true
+proptest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true
