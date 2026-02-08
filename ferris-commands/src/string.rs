@@ -6935,7 +6935,7 @@ pub fn bitfield(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 if i + 2 >= args.len() {
                     return Err(CommandError::SyntaxError);
                 }
-                let (type_str, signed, bits) = parse_type(&args[i + 1])?;
+                let (_type_str, signed, bits) = parse_type(&args[i + 1])?;
                 let offset: i64 = args[i + 2]
                     .as_str()
                     .and_then(|s| s.parse().ok())
@@ -6949,7 +6949,7 @@ pub fn bitfield(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 if i + 3 >= args.len() {
                     return Err(CommandError::SyntaxError);
                 }
-                let (type_str, signed, bits) = parse_type(&args[i + 1])?;
+                let (_type_str, signed, bits) = parse_type(&args[i + 1])?;
                 let offset: i64 = args[i + 2]
                     .as_str()
                     .and_then(|s| s.parse().ok())
@@ -6969,7 +6969,7 @@ pub fn bitfield(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 if i + 3 >= args.len() {
                     return Err(CommandError::SyntaxError);
                 }
-                let (type_str, signed, bits) = parse_type(&args[i + 1])?;
+                let (_type_str, signed, bits) = parse_type(&args[i + 1])?;
                 let offset: i64 = args[i + 2]
                     .as_str()
                     .and_then(|s| s.parse().ok())
@@ -7091,7 +7091,7 @@ fn get_bitfield_value(bytes: &[u8], offset: i64, bits: usize, signed: bool) -> i
 }
 
 /// Set a bitfield value in byte array
-fn set_bitfield_value(bytes: &mut Vec<u8>, offset: i64, bits: usize, value: i64, signed: bool) {
+fn set_bitfield_value(bytes: &mut Vec<u8>, offset: i64, bits: usize, value: i64, _signed: bool) {
     let bit_offset = if offset >= 0 {
         offset as usize
     } else {
