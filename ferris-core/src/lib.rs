@@ -56,4 +56,6 @@ pub use expiry::ExpiryManager;
 pub use memory::{EvictionPolicy, MemoryTracker};
 pub use pubsub::{PubSubMessage, PubSubRegistry, SubscriberId};
 pub use store::{Database, KeyStore};
-pub use value::{Entry, RedisValue, StreamData, StreamEntry, StreamId, ConsumerGroup, Consumer, PendingEntry};
+pub use value::{
+    Consumer, ConsumerGroup, Entry, PendingEntry, RedisValue, StreamData, StreamEntry, StreamId,
+};
