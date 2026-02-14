@@ -117,7 +117,141 @@ pub fn client(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             // Not fully implemented, just accept
             Ok(RespValue::ok())
         }
-        "NO-EVICT" => Ok(RespValue::ok()),
+        "NO-EVICT" => {
+            // CLIENT NO-EVICT ON|OFF
+            // Controls whether this client is excluded from eviction
+            Ok(RespValue::ok())
+        }
+        "NO-TOUCH" => {
+            // CLIENT NO-TOUCH ON|OFF
+            // Controls whether commands affect LRU/LFU of keys
+            Ok(RespValue::ok())
+        }
+        "SETINFO" => {
+            // CLIENT SETINFO <LIB-NAME libname | LIB-VER libver>
+            // Set client library info
+            if args.len() < 3 {
+                return Err(CommandError::WrongArity("CLIENT".to_string()));
+            }
+            let info_type = args
+                .get(1)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_uppercase())
+                .ok_or(CommandError::SyntaxError)?;
+            let _value = args
+                .get(2)
+                .and_then(|v| v.as_str())
+                .ok_or(CommandError::SyntaxError)?;
+
+            match info_type.as_str() {
+                "LIB-NAME" | "LIB-VER" => Ok(RespValue::ok()),
+                _ => Err(CommandError::InvalidArgument(format!(
+                    "Unknown CLIENT SETINFO attribute '{}'",
+                    info_type
+                ))),
+            }
+        }
+        "GETREDIR" => {
+            // CLIENT GETREDIR
+            // Returns the client ID we are redirecting tracking notifications to
+            // Returns -1 if not redirecting
+            Ok(RespValue::Integer(-1))
+        }
+        "TRACKINGINFO" => {
+            // CLIENT TRACKINGINFO
+            // Returns tracking info for this connection
+            Ok(RespValue::Array(vec![
+                RespValue::BulkString(Bytes::from("flags")),
+                RespValue::Array(vec![RespValue::BulkString(Bytes::from("off"))]),
+                RespValue::BulkString(Bytes::from("redirect")),
+                RespValue::Integer(-1),
+                RespValue::BulkString(Bytes::from("prefixes")),
+                RespValue::Array(vec![]),
+            ]))
+        }
+        "TRACKING" => {
+            // CLIENT TRACKING <ON|OFF> [REDIRECT client-id] [PREFIX prefix ...] [BCAST] [OPTIN] [OPTOUT] [NOLOOP]
+            // Enable/disable server-assisted client caching
+            if args.len() < 2 {
+                return Err(CommandError::WrongArity("CLIENT".to_string()));
+            }
+            let mode = args
+                .get(1)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_uppercase())
+                .ok_or(CommandError::SyntaxError)?;
+
+            match mode.as_str() {
+                "ON" | "OFF" => Ok(RespValue::ok()),
+                _ => Err(CommandError::SyntaxError),
+            }
+        }
+        "CACHING" => {
+            // CLIENT CACHING <YES|NO>
+            // Enable/disable tracking for next command
+            if args.len() < 2 {
+                return Err(CommandError::WrongArity("CLIENT".to_string()));
+            }
+            let mode = args
+                .get(1)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_uppercase())
+                .ok_or(CommandError::SyntaxError)?;
+
+            match mode.as_str() {
+                "YES" | "NO" => Ok(RespValue::ok()),
+                _ => Err(CommandError::SyntaxError),
+            }
+        }
+        "UNBLOCK" => {
+            // CLIENT UNBLOCK client-id [TIMEOUT|ERROR]
+            // Unblock a client blocked by a blocking command
+            if args.len() < 2 {
+                return Err(CommandError::WrongArity("CLIENT".to_string()));
+            }
+            // Return 0 (client not found) or 1 (client unblocked)
+            // For now, always return 0
+            Ok(RespValue::Integer(0))
+        }
+        "HELP" => {
+            let help = vec![
+                RespValue::BulkString(Bytes::from("CLIENT CACHING <YES|NO>")),
+                RespValue::BulkString(Bytes::from("    Enable/disable tracking for next command.")),
+                RespValue::BulkString(Bytes::from("CLIENT GETNAME")),
+                RespValue::BulkString(Bytes::from("    Return the connection name.")),
+                RespValue::BulkString(Bytes::from("CLIENT GETREDIR")),
+                RespValue::BulkString(Bytes::from("    Return tracking redirection client ID.")),
+                RespValue::BulkString(Bytes::from("CLIENT ID")),
+                RespValue::BulkString(Bytes::from("    Return the client ID.")),
+                RespValue::BulkString(Bytes::from("CLIENT INFO")),
+                RespValue::BulkString(Bytes::from("    Return info about current connection.")),
+                RespValue::BulkString(Bytes::from("CLIENT KILL <filter>")),
+                RespValue::BulkString(Bytes::from("    Kill connections matching filter.")),
+                RespValue::BulkString(Bytes::from("CLIENT LIST [ID id...]")),
+                RespValue::BulkString(Bytes::from("    List client connections.")),
+                RespValue::BulkString(Bytes::from("CLIENT NO-EVICT <ON|OFF>")),
+                RespValue::BulkString(Bytes::from("    Set no-evict mode for client.")),
+                RespValue::BulkString(Bytes::from("CLIENT NO-TOUCH <ON|OFF>")),
+                RespValue::BulkString(Bytes::from("    Set no-touch mode for client.")),
+                RespValue::BulkString(Bytes::from("CLIENT PAUSE <timeout> [WRITE|ALL]")),
+                RespValue::BulkString(Bytes::from("    Pause client commands.")),
+                RespValue::BulkString(Bytes::from("CLIENT REPLY <ON|OFF|SKIP>")),
+                RespValue::BulkString(Bytes::from("    Control server replies.")),
+                RespValue::BulkString(Bytes::from("CLIENT SETINFO <LIB-NAME|LIB-VER> <value>")),
+                RespValue::BulkString(Bytes::from("    Set client library info.")),
+                RespValue::BulkString(Bytes::from("CLIENT SETNAME <name>")),
+                RespValue::BulkString(Bytes::from("    Set connection name.")),
+                RespValue::BulkString(Bytes::from("CLIENT TRACKING <ON|OFF> [options]")),
+                RespValue::BulkString(Bytes::from("    Enable/disable server-assisted caching.")),
+                RespValue::BulkString(Bytes::from("CLIENT TRACKINGINFO")),
+                RespValue::BulkString(Bytes::from("    Return tracking info.")),
+                RespValue::BulkString(Bytes::from("CLIENT UNBLOCK <client-id> [TIMEOUT|ERROR]")),
+                RespValue::BulkString(Bytes::from("    Unblock a blocked client.")),
+                RespValue::BulkString(Bytes::from("CLIENT UNPAUSE")),
+                RespValue::BulkString(Bytes::from("    Resume client commands.")),
+            ];
+            Ok(RespValue::Array(help))
+        }
         _ => Err(CommandError::InvalidArgument(format!(
             "Unknown CLIENT subcommand '{subcommand}'"
         ))),

@@ -443,6 +443,11 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "SETRANGE",
         cmd("SETRANGE", 4, write_flags(), crate::string::setrange),
     );
+    // SUBSTR is a deprecated alias for GETRANGE
+    registry.register(
+        "SUBSTR",
+        cmd("SUBSTR", 4, read_flags(), crate::string::substr),
+    );
     registry.register(
         "GETSET",
         cmd("GETSET", 3, fast_write_flags(), crate::string::getset),

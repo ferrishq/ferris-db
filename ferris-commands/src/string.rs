@@ -697,6 +697,16 @@ pub fn getrange(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 }
 
+/// SUBSTR key start end (deprecated alias for GETRANGE)
+///
+/// Returns the substring of the string value stored at key.
+/// This command is deprecated. Use GETRANGE instead.
+///
+/// Time complexity: O(N) where N is the length of the returned string
+pub fn substr(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    getrange(ctx, args)
+}
+
 /// SETRANGE key offset value
 ///
 /// Overwrites part of the string stored at key, starting at the specified offset.
