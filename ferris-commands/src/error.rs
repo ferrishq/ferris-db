@@ -54,6 +54,10 @@ pub enum CommandError {
     #[error("ERR no such key")]
     NoSuchKey,
 
+    /// Unknown subcommand
+    #[error("ERR unknown subcommand '{0}'. Try {1} HELP.")]
+    UnknownSubcommand(String, String),
+
     /// Internal error
     #[error("ERR {0}")]
     Internal(String),

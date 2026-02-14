@@ -690,6 +690,7 @@ fn estimate_memory_usage(value: &ferris_core::RedisValue, key: &[u8]) -> i64 {
                 .sum();
             items + 96 // HashMap + BTreeMap overhead
         }
+        RedisValue::Stream(s) => s.memory_usage() as i64,
     };
 
     base + value_size

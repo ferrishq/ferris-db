@@ -97,6 +97,7 @@ pub mod executor;
 pub mod registry;
 
 // Command modules
+pub mod acl;
 pub mod connection;
 pub mod geo;
 pub mod hash;
@@ -104,9 +105,11 @@ pub mod hyperloglog;
 pub mod key;
 pub mod list;
 pub mod pubsub;
+pub mod scripting;
 pub mod server;
 pub mod set;
 pub mod sorted_set;
+pub mod stream;
 pub mod string;
 pub mod transaction;
 

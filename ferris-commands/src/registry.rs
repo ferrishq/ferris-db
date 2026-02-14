@@ -991,6 +991,84 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
             crate::sorted_set::bzmpop,
         ),
     );
+
+    // Stream commands
+    registry.register("XADD", cmd("XADD", -5, write_flags(), crate::stream::xadd));
+    registry.register(
+        "XLEN",
+        cmd("XLEN", 2, fast_read_flags(), crate::stream::xlen),
+    );
+    registry.register(
+        "XRANGE",
+        cmd("XRANGE", -4, read_flags(), crate::stream::xrange),
+    );
+    registry.register(
+        "XREVRANGE",
+        cmd("XREVRANGE", -4, read_flags(), crate::stream::xrevrange),
+    );
+    registry.register(
+        "XREAD",
+        cmd("XREAD", -4, read_flags(), crate::stream::xread),
+    );
+    registry.register("XDEL", cmd("XDEL", -3, write_flags(), crate::stream::xdel));
+    registry.register(
+        "XTRIM",
+        cmd("XTRIM", -4, write_flags(), crate::stream::xtrim),
+    );
+    registry.register(
+        "XINFO",
+        cmd("XINFO", -2, read_flags(), crate::stream::xinfo),
+    );
+    registry.register(
+        "XGROUP",
+        cmd("XGROUP", -2, write_flags(), crate::stream::xgroup),
+    );
+    registry.register(
+        "XSETID",
+        cmd("XSETID", 3, write_flags(), crate::stream::xsetid),
+    );
+    registry.register("XACK", cmd("XACK", -4, write_flags(), crate::stream::xack));
+    registry.register(
+        "XPENDING",
+        cmd("XPENDING", -3, read_flags(), crate::stream::xpending),
+    );
+
+    // Scripting commands
+    registry.register(
+        "EVAL",
+        cmd("EVAL", -3, write_flags(), crate::scripting::eval),
+    );
+    registry.register(
+        "EVAL_RO",
+        cmd("EVAL_RO", -3, read_flags(), crate::scripting::eval_ro),
+    );
+    registry.register(
+        "EVALSHA",
+        cmd("EVALSHA", -3, write_flags(), crate::scripting::evalsha),
+    );
+    registry.register(
+        "EVALSHA_RO",
+        cmd("EVALSHA_RO", -3, read_flags(), crate::scripting::evalsha_ro),
+    );
+    registry.register(
+        "SCRIPT",
+        cmd("SCRIPT", -2, admin_flags(), crate::scripting::script),
+    );
+    registry.register(
+        "FCALL",
+        cmd("FCALL", -3, write_flags(), crate::scripting::fcall),
+    );
+    registry.register(
+        "FCALL_RO",
+        cmd("FCALL_RO", -3, read_flags(), crate::scripting::fcall_ro),
+    );
+    registry.register(
+        "FUNCTION",
+        cmd("FUNCTION", -2, admin_flags(), crate::scripting::function),
+    );
+
+    // ACL commands
+    registry.register("ACL", cmd("ACL", -2, admin_flags(), crate::acl::acl));
 }
 
 #[cfg(test)]

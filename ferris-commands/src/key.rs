@@ -771,6 +771,13 @@ pub fn object(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                                 "skiplist"
                             }
                         }
+                        RedisValue::Stream(s) => {
+                            if s.len() <= 128 {
+                                "listpack"
+                            } else {
+                                "radix-tree"
+                            }
+                        }
                     };
                     Ok(RespValue::BulkString(Bytes::from(encoding)))
                 }
@@ -853,6 +860,7 @@ pub fn dump(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 RedisValue::Set(_) => 2u8,
                 RedisValue::Hash(_) => 4u8,
                 RedisValue::SortedSet { .. } => 3u8,
+                RedisValue::Stream(_) => 15u8,
             };
             // Very simplified serialization
             Ok(RespValue::BulkString(Bytes::from(vec![type_byte])))
