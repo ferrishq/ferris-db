@@ -80,7 +80,7 @@ pub async fn handle_connection(
                 break;
             }
             // Connection idle timeout
-            () = async { 
+            () = async {
                 if let Some(sleep) = timeout_sleep {
                     sleep.await;
                 } else {
@@ -110,7 +110,7 @@ pub async fn handle_connection(
 
                 // Collect all available commands from the buffer (pipelining support)
                 let mut frames = vec![first_frame];
-                
+
                 // Try to read more frames that are already buffered
                 // This is non-blocking - we only read what's already parsed
                 loop {

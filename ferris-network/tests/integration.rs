@@ -3,6 +3,12 @@
 //! These tests spawn a real server on a random port and exercise
 //! the full stack: TCP -> RESP codec -> command executor -> response.
 
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::redundant_closure_for_method_calls)]
+
 use bytes::Bytes;
 use ferris_network::ServerConfig;
 use ferris_protocol::RespValue;
@@ -17,7 +23,7 @@ async fn test_connect_and_disconnect() {
     let server = TestServer::spawn().await;
     let client = server.client().await;
     drop(client); // Disconnect
-    // Server should handle the disconnect gracefully
+                  // Server should handle the disconnect gracefully
     server.stop().await;
 }
 
@@ -551,11 +557,9 @@ async fn test_max_connections_limit() {
         if write_result.is_ok() {
             use tokio::io::AsyncReadExt;
             let mut buf = [0u8; 128];
-            let read_result = tokio::time::timeout(
-                std::time::Duration::from_millis(500),
-                stream.read(&mut buf),
-            )
-            .await;
+            let read_result =
+                tokio::time::timeout(std::time::Duration::from_millis(500), stream.read(&mut buf))
+                    .await;
             // Either timeout or read 0 bytes (connection closed) is acceptable
             match read_result {
                 Ok(Ok(0)) => {} // Connection was closed by server — correct behavior
@@ -740,7 +744,10 @@ async fn test_info_command() {
     match response {
         RespValue::BulkString(data) => {
             let text = String::from_utf8_lossy(&data);
-            assert!(text.contains("redis_version"), "INFO should contain redis_version");
+            assert!(
+                text.contains("redis_version"),
+                "INFO should contain redis_version"
+            );
         }
         other => panic!("expected BulkString for INFO, got {:?}", other),
     }
@@ -783,10 +790,7 @@ async fn test_data_visible_across_clients() {
     writer.cmd_ok(&["SET", "shared_key", "shared_val"]).await;
 
     let response = reader.cmd(&["GET", "shared_key"]).await;
-    assert_eq!(
-        response,
-        RespValue::BulkString(Bytes::from("shared_val"))
-    );
+    assert_eq!(response, RespValue::BulkString(Bytes::from("shared_val")));
 
     server.stop().await;
 }
@@ -923,7 +927,10 @@ async fn test_memory_stats_returns_values() {
     let response = client.cmd(&["MEMORY", "STATS"]).await;
     if let RespValue::Array(arr) = response {
         // Should have key-value pairs
-        assert!(arr.len() >= 4, "Expected at least 4 elements in MEMORY STATS");
+        assert!(
+            arr.len() >= 4,
+            "Expected at least 4 elements in MEMORY STATS"
+        );
 
         // Check for peak.allocated
         let peak_idx = arr
@@ -1179,7 +1186,9 @@ async fn test_memory_usage_list() {
     let mut client = server.client().await;
 
     // Create a list with multiple items (RPUSH returns count, not OK)
-    let response = client.cmd(&["RPUSH", "mylist", "a", "b", "c", "d", "e"]).await;
+    let response = client
+        .cmd(&["RPUSH", "mylist", "a", "b", "c", "d", "e"])
+        .await;
     assert_eq!(response, RespValue::Integer(5));
 
     let response = client.cmd(&["MEMORY", "USAGE", "mylist"]).await;
@@ -1198,7 +1207,9 @@ async fn test_memory_usage_hash() {
     let mut client = server.client().await;
 
     // HSET returns the number of fields added
-    let response = client.cmd(&["HSET", "myhash", "f1", "v1", "f2", "v2", "f3", "v3"]).await;
+    let response = client
+        .cmd(&["HSET", "myhash", "f1", "v1", "f2", "v2", "f3", "v3"])
+        .await;
     assert_eq!(response, RespValue::Integer(3));
 
     let response = client.cmd(&["MEMORY", "USAGE", "myhash"]).await;
@@ -1217,7 +1228,9 @@ async fn test_memory_usage_set() {
     let mut client = server.client().await;
 
     // SADD returns the number of elements added
-    let response = client.cmd(&["SADD", "myset", "a", "b", "c", "d", "e"]).await;
+    let response = client
+        .cmd(&["SADD", "myset", "a", "b", "c", "d", "e"])
+        .await;
     assert_eq!(response, RespValue::Integer(5));
 
     let response = client.cmd(&["MEMORY", "USAGE", "myset"]).await;
@@ -1236,7 +1249,9 @@ async fn test_memory_usage_zset() {
     let mut client = server.client().await;
 
     // ZADD returns the number of elements added
-    let response = client.cmd(&["ZADD", "myzset", "1", "a", "2", "b", "3", "c"]).await;
+    let response = client
+        .cmd(&["ZADD", "myzset", "1", "a", "2", "b", "3", "c"])
+        .await;
     assert_eq!(response, RespValue::Integer(3));
 
     let response = client.cmd(&["MEMORY", "USAGE", "myzset"]).await;
@@ -1434,10 +1449,7 @@ async fn test_pipeline_mixed_commands() {
 
     assert_eq!(responses.len(), 6);
     assert_eq!(responses[0], RespValue::SimpleString("OK".to_string())); // SET
-    assert_eq!(
-        responses[1],
-        RespValue::BulkString(Bytes::from("myvalue"))
-    ); // GET
+    assert_eq!(responses[1], RespValue::BulkString(Bytes::from("myvalue"))); // GET
     assert_eq!(responses[2], RespValue::Integer(1)); // INCR
     assert_eq!(responses[3], RespValue::Integer(2)); // INCR
     assert_eq!(responses[4], RespValue::BulkString(Bytes::from("2"))); // GET counter
@@ -1620,14 +1632,8 @@ async fn test_pipeline_hash_operations() {
 
     assert_eq!(responses.len(), 4);
     assert_eq!(responses[0], RespValue::Integer(2)); // HSET returns fields added
-    assert_eq!(
-        responses[1],
-        RespValue::BulkString(Bytes::from("v1"))
-    );
-    assert_eq!(
-        responses[2],
-        RespValue::BulkString(Bytes::from("v2"))
-    );
+    assert_eq!(responses[1], RespValue::BulkString(Bytes::from("v1")));
+    assert_eq!(responses[2], RespValue::BulkString(Bytes::from("v2")));
     if let RespValue::Array(arr) = &responses[3] {
         assert_eq!(arr.len(), 4); // 2 field-value pairs
     } else {
@@ -1710,10 +1716,10 @@ async fn test_connection_timeout_no_timeout() {
     .await;
 
     let mut client = server.client().await;
-    
+
     // Wait longer than typical timeout
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    
+
     // Connection should still be alive
     let response = client.cmd(&["PING"]).await;
     assert_eq!(response, RespValue::SimpleString("PONG".to_string()));
@@ -1732,14 +1738,14 @@ async fn test_connection_timeout_with_timeout() {
     .await;
 
     let mut client = server.client().await;
-    
+
     // Send a command immediately (should work)
     let response = client.cmd(&["PING"]).await;
     assert_eq!(response, RespValue::SimpleString("PONG".to_string()));
-    
+
     // Wait for timeout (1 second + buffer)
     tokio::time::sleep(tokio::time::Duration::from_millis(1200)).await;
-    
+
     // Connection should be closed by the server
     // Attempting to send a command should fail
     let result = client.try_cmd(&["PING"]).await;
@@ -1759,14 +1765,14 @@ async fn test_connection_timeout_reset_on_activity() {
     .await;
 
     let mut client = server.client().await;
-    
+
     // Send commands every 1 second (before timeout)
     for _ in 0..5 {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let response = client.cmd(&["PING"]).await;
         assert_eq!(response, RespValue::SimpleString("PONG".to_string()));
     }
-    
+
     // Connection should still be alive after 5 seconds of activity
     let response = client.cmd(&["GET", "key"]).await;
     assert!(matches!(response, RespValue::Null) || matches!(response, RespValue::BulkString(_)));

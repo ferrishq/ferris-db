@@ -85,7 +85,11 @@ impl Server {
     }
 
     /// Create a new server with AOF writer
-    pub fn with_aof(config: ServerConfig, store: Arc<KeyStore>, aof_writer: Arc<AofWriter>) -> Self {
+    pub fn with_aof(
+        config: ServerConfig,
+        store: Arc<KeyStore>,
+        aof_writer: Arc<AofWriter>,
+    ) -> Self {
         let executor = Arc::new(CommandExecutor::new());
         let blocking_registry = Arc::new(BlockingRegistry::new());
         let (shutdown_tx, _) = broadcast::channel(1);

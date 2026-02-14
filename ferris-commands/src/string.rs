@@ -54,7 +54,7 @@ pub fn get(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 }
 
-/// SET key value [EX seconds | PX milliseconds | EXAT timestamp | PXAT timestamp | KEEPTTL] [NX | XX] [GET]
+/// SET key value \[EX seconds | PX milliseconds | EXAT timestamp | PXAT timestamp | KEEPTTL\] \[NX | XX\] \[GET\]
 ///
 /// Set key to hold the string value.
 ///
@@ -6613,7 +6613,7 @@ fn find_bit_position_bit_range(
     -1
 }
 
-/// LCS key1 key2 [LEN] [IDX] [MINMATCHLEN len] [WITHMATCHLEN]
+/// LCS key1 key2 \[LEN\] \[IDX\] \[MINMATCHLEN len\] \[WITHMATCHLEN\]
 ///
 /// Find the longest common subsequence between two strings.
 ///

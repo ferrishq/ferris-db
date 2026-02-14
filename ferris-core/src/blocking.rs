@@ -170,11 +170,8 @@ mod tests {
         });
 
         // Wait for notification (with timeout)
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            notify.notified(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_secs(1), notify.notified()).await;
 
         assert!(result.is_ok(), "should have been notified");
         handle.await.expect("spawned task should complete");

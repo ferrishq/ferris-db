@@ -1,4 +1,9 @@
-//! Benchmarks for KeyStore operations
+//! Benchmarks for `KeyStore` operations
+
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::semicolon_if_nothing_returned)]
+#![allow(unused_imports)]
 
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};

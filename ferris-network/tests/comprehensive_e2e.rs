@@ -3,6 +3,12 @@
 //! These 20 tests verify that all major features work correctly together
 //! over real TCP connections using the full stack.
 
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::len_zero)]
+
 use ferris_protocol::RespValue;
 use ferris_test_utils::TestServer;
 
@@ -34,7 +40,9 @@ async fn test_e2e_string_basic_operations() {
     assert_eq!(result, RespValue::Integer(12));
 
     // MSET and MGET
-    client.cmd_ok(&["MSET", "k1", "v1", "k2", "v2", "k3", "v3"]).await;
+    client
+        .cmd_ok(&["MSET", "k1", "v1", "k2", "v2", "k3", "v3"])
+        .await;
     let result = client.cmd(&["MGET", "k1", "k2", "k3"]).await;
     assert_eq!(
         result,
@@ -131,7 +139,10 @@ async fn test_e2e_list_blocking_operations() {
     // Client 1 starts blocking on empty list
     let client1_handle = tokio::spawn(async move {
         let result = client1
-            .cmd_timeout(&["BLPOP", "queue", "2"], tokio::time::Duration::from_secs(3))
+            .cmd_timeout(
+                &["BLPOP", "queue", "2"],
+                tokio::time::Duration::from_secs(3),
+            )
             .await;
         (client1, result)
     });
@@ -177,7 +188,9 @@ async fn test_e2e_hash_operations() {
     client
         .cmd_ok(&["HMSET", "user:1", "age", "30", "city", "NYC"])
         .await;
-    let result = client.cmd(&["HMGET", "user:1", "name", "age", "city"]).await;
+    let result = client
+        .cmd(&["HMGET", "user:1", "name", "age", "city"])
+        .await;
     assert_eq!(
         result,
         RespValue::Array(vec![
@@ -281,7 +294,16 @@ async fn test_e2e_sorted_set_operations() {
 
     // ZADD
     let result = client
-        .cmd(&["ZADD", "leaderboard", "100", "alice", "200", "bob", "150", "charlie"])
+        .cmd(&[
+            "ZADD",
+            "leaderboard",
+            "100",
+            "alice",
+            "200",
+            "bob",
+            "150",
+            "charlie",
+        ])
         .await;
     assert_eq!(result, RespValue::Integer(3));
 
@@ -558,7 +580,9 @@ async fn test_e2e_memory_operations() {
     let mut client = server.client().await;
 
     // Set a small maxmemory limit
-    client.cmd_ok(&["CONFIG", "SET", "maxmemory", "50000"]).await;
+    client
+        .cmd_ok(&["CONFIG", "SET", "maxmemory", "50000"])
+        .await;
     client
         .cmd_ok(&["CONFIG", "SET", "maxmemory-policy", "allkeys-lru"])
         .await;
@@ -933,11 +957,7 @@ async fn test_e2e_special_values() {
     // Binary data (non-UTF8)
     let binary_data = vec![0xFF, 0xFE, 0x00, 0x01, 0x02];
     let result = client
-        .cmd(&[
-            "SET",
-            "binary",
-            &String::from_utf8_lossy(&binary_data),
-        ])
+        .cmd(&["SET", "binary", &String::from_utf8_lossy(&binary_data)])
         .await;
     assert!(matches!(
         result,
@@ -1002,9 +1022,7 @@ async fn test_e2e_full_workflow() {
         .await;
 
     // 4. User adds to cart
-    client
-        .cmd(&["SADD", "cart:1001", "prod:1", "prod:3"])
-        .await;
+    client.cmd(&["SADD", "cart:1001", "prod:1", "prod:3"]).await;
 
     // 5. User visits count
     client.cmd(&["INCR", "user:1001:visits"]).await;

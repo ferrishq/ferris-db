@@ -1,10 +1,10 @@
 //! Test client for integration tests
 
-use std::net::SocketAddr;
 use bytes::{Bytes, BytesMut};
-use tokio::net::TcpStream;
+use ferris_protocol::{resp2, RespValue};
+use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use ferris_protocol::{RespValue, resp2};
+use tokio::net::TcpStream;
 
 /// A simple test client for sending commands and receiving responses
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl TestClient {
         let stream = TcpStream::connect(addr)
             .await
             .expect("failed to connect to test server");
-        
+
         Self {
             stream,
             read_buf: BytesMut::with_capacity(4096),
@@ -91,7 +91,7 @@ impl TestClient {
         let cmd = RespValue::Array(
             args.iter()
                 .map(|s| RespValue::BulkString(Bytes::from(s.to_string())))
-                .collect()
+                .collect(),
         );
 
         let mut buf = BytesMut::new();
@@ -108,7 +108,7 @@ impl TestClient {
         let cmd = RespValue::Array(
             args.iter()
                 .map(|s| RespValue::BulkString(Bytes::from(s.to_string())))
-                .collect()
+                .collect(),
         );
 
         let mut buf = BytesMut::new();
@@ -128,7 +128,7 @@ impl TestClient {
             let cmd = RespValue::Array(
                 args.iter()
                     .map(|s| RespValue::BulkString(Bytes::from(s.to_string())))
-                    .collect()
+                    .collect(),
             );
             resp2::serialize(&cmd, &mut buf);
         }
@@ -155,7 +155,7 @@ impl TestClient {
             let cmd = RespValue::Array(
                 args.iter()
                     .map(|s| RespValue::BulkString(Bytes::from(s.to_string())))
-                    .collect()
+                    .collect(),
             );
             resp2::serialize(&cmd, &mut buf);
         }
@@ -177,7 +177,9 @@ impl TestClient {
 
     /// Read a response from the server
     async fn read_response(&mut self) -> RespValue {
-        self.try_read_response().await.expect("failed to read response")
+        self.try_read_response()
+            .await
+            .expect("failed to read response")
     }
 
     /// Try to read a response from the server, returning an error if the connection is closed
@@ -185,20 +187,18 @@ impl TestClient {
         loop {
             // Try to parse from existing buffer
             if let Some(value) = resp2::parse(&mut self.read_buf)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))? 
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
             {
                 return Ok(value);
             }
 
             // Need more data
-            let n = self.stream
-                .read_buf(&mut self.read_buf)
-                .await?;
+            let n = self.stream.read_buf(&mut self.read_buf).await?;
 
             if n == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::ConnectionReset,
-                    "connection closed by server"
+                    "connection closed by server",
                 ));
             }
         }

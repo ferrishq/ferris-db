@@ -3,6 +3,9 @@
 //! A high-performance, multi-threaded, Redis-compatible distributed key-value store.
 
 #![deny(unsafe_code)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::unnecessary_wraps)]
 
 use bytes::Bytes;
 use clap::Parser;
@@ -87,7 +90,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting ferris-db server v{}", env!("CARGO_PKG_VERSION"));
     info!("Bind address: {}", bind_addr);
-    info!("AOF persistence: {}", if args.aof { "enabled" } else { "disabled" });
+    info!(
+        "AOF persistence: {}",
+        if args.aof { "enabled" } else { "disabled" }
+    );
 
     // Initialize the key store
     let store = Arc::new(KeyStore::default());
@@ -222,13 +228,9 @@ fn replay_command(
     db_index: usize,
     command: &[RespValue],
 ) -> Result<(), ferris_persistence::PersistenceError> {
-
-
     // Parse command name
     let cmd_name = match command.first() {
-        Some(RespValue::BulkString(name)) => {
-            String::from_utf8_lossy(name).to_uppercase()
-        }
+        Some(RespValue::BulkString(name)) => String::from_utf8_lossy(name).to_uppercase(),
         _ => return Ok(()), // Skip invalid commands
     };
 
@@ -331,8 +333,10 @@ fn replay_command(
 
                     let mut i = 2;
                     while i + 1 < command.len() {
-                        if let (Some(RespValue::BulkString(field)), Some(RespValue::BulkString(value))) =
-                            (command.get(i), command.get(i + 1))
+                        if let (
+                            Some(RespValue::BulkString(field)),
+                            Some(RespValue::BulkString(value)),
+                        ) = (command.get(i), command.get(i + 1))
                         {
                             hash.insert(field.clone(), value.clone());
                         }

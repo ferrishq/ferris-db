@@ -230,7 +230,7 @@ impl CommandContext {
         if let Some(ref aof_writer) = self.aof_writer {
             let aof_writer = Arc::clone(aof_writer);
             let db = self.selected_db;
-            
+
             // Spawn a task to send to AOF (non-blocking)
             // Note: This is fire-and-forget. If the channel is full,
             // the command will be dropped (which is acceptable for AOF).

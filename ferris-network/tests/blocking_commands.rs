@@ -4,6 +4,10 @@
 //! These tests exercise the full blocking pipeline: command -> Block error
 //! -> connection handler wait -> notify -> retry -> response.
 
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::uninlined_format_args)]
+
 use bytes::Bytes;
 use ferris_protocol::RespValue;
 use ferris_test_utils::TestServer;
@@ -801,9 +805,7 @@ async fn test_blmove_immediate_data() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "src", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "src", "a", "b", "c"]).await;
 
     let result = client
         .cmd(&["BLMOVE", "src", "dst", "LEFT", "RIGHT", "1"])
@@ -900,9 +902,7 @@ async fn test_blmove_same_key() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "mylist", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "mylist", "a", "b", "c"]).await;
 
     // Rotate: pop left, push right (same key)
     let result = client
@@ -1184,9 +1184,7 @@ async fn test_blmove_multiple_sequential_moves() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "src", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "src", "a", "b", "c"]).await;
 
     let r1 = client
         .cmd(&["BLMOVE", "src", "dst", "LEFT", "RIGHT", "1"])
@@ -1225,9 +1223,7 @@ async fn test_blmpop_immediate_data_left() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "mylist", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "mylist", "a", "b", "c"]).await;
 
     let result = client.cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"]).await;
     assert_eq!(
@@ -1246,9 +1242,7 @@ async fn test_blmpop_immediate_data_right() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "mylist", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "mylist", "a", "b", "c"]).await;
 
     let result = client.cmd(&["BLMPOP", "1", "1", "mylist", "RIGHT"]).await;
     assert_eq!(
@@ -1267,9 +1261,7 @@ async fn test_blmpop_with_count() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "mylist", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "mylist", "a", "b", "c"]).await;
 
     let result = client
         .cmd(&["BLMPOP", "1", "1", "mylist", "LEFT", "COUNT", "2"])
@@ -1357,9 +1349,7 @@ async fn test_blmpop_wrong_type() {
 
     client.cmd_ok(&["SET", "str_key", "value"]).await;
 
-    let result = client
-        .cmd(&["BLMPOP", "0.1", "1", "str_key", "LEFT"])
-        .await;
+    let result = client.cmd(&["BLMPOP", "0.1", "1", "str_key", "LEFT"]).await;
     match result {
         RespValue::Error(e) => assert!(e.contains("WRONGTYPE")),
         other => panic!("expected error, got {:?}", other),
@@ -1467,9 +1457,7 @@ async fn test_blmpop_deletes_empty_list() {
 
     client.cmd(&["RPUSH", "mylist", "only"]).await;
 
-    client
-        .cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"])
-        .await;
+    client.cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"]).await;
 
     let exists = client.cmd(&["EXISTS", "mylist"]).await;
     assert_eq!(exists, RespValue::Integer(0));
@@ -1502,9 +1490,7 @@ async fn test_blmpop_connection_works_after_immediate() {
     let mut client = server.client().await;
 
     client.cmd(&["RPUSH", "mylist", "val"]).await;
-    client
-        .cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"])
-        .await;
+    client.cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"]).await;
 
     let pong = client.cmd(&["PING"]).await;
     assert_eq!(pong, RespValue::SimpleString("PONG".to_string()));
@@ -1537,9 +1523,7 @@ async fn test_blmpop_non_numeric_timeout() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    let result = client
-        .cmd(&["BLMPOP", "abc", "1", "mylist", "LEFT"])
-        .await;
+    let result = client.cmd(&["BLMPOP", "abc", "1", "mylist", "LEFT"]).await;
     match result {
         RespValue::Error(e) => assert!(
             e.contains("timeout") || e.contains("float") || e.contains("not") || e.contains("ERR"),
@@ -1582,19 +1566,11 @@ async fn test_blmpop_multiple_pops_in_sequence() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    client
-        .cmd(&["RPUSH", "mylist", "a", "b", "c"])
-        .await;
+    client.cmd(&["RPUSH", "mylist", "a", "b", "c"]).await;
 
-    let r1 = client
-        .cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"])
-        .await;
-    let r2 = client
-        .cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"])
-        .await;
-    let r3 = client
-        .cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"])
-        .await;
+    let r1 = client.cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"]).await;
+    let r2 = client.cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"]).await;
+    let r3 = client.cmd(&["BLMPOP", "1", "1", "mylist", "LEFT"]).await;
 
     assert_eq!(
         r1,
@@ -1626,9 +1602,7 @@ async fn test_blmpop_invalid_direction() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    let result = client
-        .cmd(&["BLMPOP", "1", "1", "mylist", "UP"])
-        .await;
+    let result = client.cmd(&["BLMPOP", "1", "1", "mylist", "UP"]).await;
     match result {
         RespValue::Error(_) => {} // Expected
         other => panic!("expected error, got {:?}", other),
@@ -1736,9 +1710,7 @@ async fn test_bzpopmin_multiple_keys() {
 
     client.cmd(&["ZADD", "zset2", "5", "member"]).await;
 
-    let result = client
-        .cmd(&["BZPOPMIN", "zset1", "zset2", "1"])
-        .await;
+    let result = client.cmd(&["BZPOPMIN", "zset1", "zset2", "1"]).await;
     assert_eq!(
         result,
         RespValue::Array(vec![
@@ -1864,9 +1836,7 @@ async fn test_bzpopmin_removes_from_zset() {
     assert_eq!(card, RespValue::Integer(2));
 
     // "a" should be gone, "b" and "c" remain
-    let members = client
-        .cmd(&["ZRANGE", "myzset", "0", "-1"])
-        .await;
+    let members = client.cmd(&["ZRANGE", "myzset", "0", "-1"]).await;
     assert_eq!(
         members,
         RespValue::Array(vec![
@@ -2006,9 +1976,7 @@ async fn test_bzpopmin_multiple_keys_wakeup() {
     let mut client1 = server.client().await;
     let mut client2 = server.client().await;
 
-    client1
-        .send_raw(&["BZPOPMIN", "zset1", "zset2", "5"])
-        .await;
+    client1.send_raw(&["BZPOPMIN", "zset1", "zset2", "5"]).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     client2.cmd(&["ZADD", "zset2", "3", "member"]).await;
@@ -2184,9 +2152,7 @@ async fn test_bzpopmax_multiple_keys() {
 
     client.cmd(&["ZADD", "zset2", "5", "member"]).await;
 
-    let result = client
-        .cmd(&["BZPOPMAX", "zset1", "zset2", "1"])
-        .await;
+    let result = client.cmd(&["BZPOPMAX", "zset1", "zset2", "1"]).await;
     assert_eq!(
         result,
         RespValue::Array(vec![
@@ -2273,9 +2239,7 @@ async fn test_bzpopmax_removes_from_zset() {
     assert_eq!(card, RespValue::Integer(2));
 
     // "c" should be gone, "a" and "b" remain
-    let members = client
-        .cmd(&["ZRANGE", "myzset", "0", "-1"])
-        .await;
+    let members = client.cmd(&["ZRANGE", "myzset", "0", "-1"]).await;
     assert_eq!(
         members,
         RespValue::Array(vec![
@@ -2437,9 +2401,7 @@ async fn test_bzpopmax_multiple_keys_wakeup() {
     let mut client1 = server.client().await;
     let mut client2 = server.client().await;
 
-    client1
-        .send_raw(&["BZPOPMAX", "zset1", "zset2", "5"])
-        .await;
+    client1.send_raw(&["BZPOPMAX", "zset1", "zset2", "5"]).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     client2.cmd(&["ZADD", "zset1", "10", "member"]).await;
@@ -2529,9 +2491,7 @@ async fn test_bzmpop_immediate_min() {
         .cmd(&["ZADD", "myzset", "1", "a", "2", "b", "3", "c"])
         .await;
 
-    let result = client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIN"])
-        .await;
+    let result = client.cmd(&["BZMPOP", "1", "1", "myzset", "MIN"]).await;
     assert_eq!(
         result,
         RespValue::Array(vec![
@@ -2555,9 +2515,7 @@ async fn test_bzmpop_immediate_max() {
         .cmd(&["ZADD", "myzset", "1", "a", "2", "b", "3", "c"])
         .await;
 
-    let result = client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MAX"])
-        .await;
+    let result = client.cmd(&["BZMPOP", "1", "1", "myzset", "MAX"]).await;
     assert_eq!(
         result,
         RespValue::Array(vec![
@@ -2627,9 +2585,7 @@ async fn test_bzmpop_wakeup_on_zadd() {
         .await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    client2
-        .cmd(&["ZADD", "myzset", "7", "hello"])
-        .await;
+    client2.cmd(&["ZADD", "myzset", "7", "hello"]).await;
 
     let result = client1.read_response_timeout(Duration::from_secs(2)).await;
     assert_eq!(
@@ -2677,9 +2633,7 @@ async fn test_bzmpop_wrong_type() {
 
     client.cmd_ok(&["SET", "str_key", "value"]).await;
 
-    let result = client
-        .cmd(&["BZMPOP", "0.1", "1", "str_key", "MIN"])
-        .await;
+    let result = client.cmd(&["BZMPOP", "0.1", "1", "str_key", "MIN"]).await;
     match result {
         RespValue::Error(e) => assert!(e.contains("WRONGTYPE")),
         other => panic!("expected error, got {:?}", other),
@@ -2693,9 +2647,7 @@ async fn test_bzmpop_negative_timeout_error() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    let result = client
-        .cmd(&["BZMPOP", "-1", "1", "myzset", "MIN"])
-        .await;
+    let result = client.cmd(&["BZMPOP", "-1", "1", "myzset", "MIN"]).await;
     match result {
         RespValue::Error(e) => assert!(e.contains("negative") || e.contains("timeout")),
         other => panic!("expected error, got {:?}", other),
@@ -2820,9 +2772,7 @@ async fn test_bzmpop_deletes_empty_zset() {
 
     client.cmd(&["ZADD", "myzset", "1", "only"]).await;
 
-    client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIN"])
-        .await;
+    client.cmd(&["BZMPOP", "1", "1", "myzset", "MIN"]).await;
 
     let exists = client.cmd(&["EXISTS", "myzset"]).await;
     assert_eq!(exists, RespValue::Integer(0));
@@ -2855,9 +2805,7 @@ async fn test_bzmpop_connection_works_after_immediate() {
     let mut client = server.client().await;
 
     client.cmd(&["ZADD", "myzset", "1", "a"]).await;
-    client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIN"])
-        .await;
+    client.cmd(&["BZMPOP", "1", "1", "myzset", "MIN"]).await;
 
     let pong = client.cmd(&["PING"]).await;
     assert_eq!(pong, RespValue::SimpleString("PONG".to_string()));
@@ -2890,9 +2838,7 @@ async fn test_bzmpop_non_numeric_timeout() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    let result = client
-        .cmd(&["BZMPOP", "abc", "1", "myzset", "MIN"])
-        .await;
+    let result = client.cmd(&["BZMPOP", "abc", "1", "myzset", "MIN"]).await;
     match result {
         RespValue::Error(e) => assert!(
             e.contains("timeout") || e.contains("float") || e.contains("not") || e.contains("ERR"),
@@ -2910,9 +2856,7 @@ async fn test_bzmpop_invalid_modifier() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    let result = client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIDDLE"])
-        .await;
+    let result = client.cmd(&["BZMPOP", "1", "1", "myzset", "MIDDLE"]).await;
     match result {
         RespValue::Error(_) => {} // Expected
         other => panic!("expected error, got {:?}", other),
@@ -2930,15 +2874,9 @@ async fn test_bzmpop_multiple_pops_in_sequence() {
         .cmd(&["ZADD", "myzset", "1", "a", "2", "b", "3", "c"])
         .await;
 
-    let r1 = client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIN"])
-        .await;
-    let r2 = client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIN"])
-        .await;
-    let r3 = client
-        .cmd(&["BZMPOP", "1", "1", "myzset", "MIN"])
-        .await;
+    let r1 = client.cmd(&["BZMPOP", "1", "1", "myzset", "MIN"]).await;
+    let r2 = client.cmd(&["BZMPOP", "1", "1", "myzset", "MIN"]).await;
+    let r3 = client.cmd(&["BZMPOP", "1", "1", "myzset", "MIN"]).await;
 
     assert_eq!(
         r1,
@@ -3037,7 +2975,10 @@ async fn test_blpop_fifo_wake_order() {
     let r2 = client2.read_response_timeout(Duration::from_secs(2)).await;
 
     // At least one of them should have gotten data
-    assert!(r1.is_some() || r2.is_some(), "at least one client should have received data");
+    assert!(
+        r1.is_some() || r2.is_some(),
+        "at least one client should have received data"
+    );
 
     server.stop().await;
 }

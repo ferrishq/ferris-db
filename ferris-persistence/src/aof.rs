@@ -82,9 +82,7 @@ impl AofWriter {
 
         // Start background writer task
         let task_config = Arc::clone(&config);
-        let task_handle = tokio::spawn(async move {
-            aof_writer_task(rx, task_config).await
-        });
+        let task_handle = tokio::spawn(async move { aof_writer_task(rx, task_config).await });
 
         info!(path = %config.file_path.display(), "AOF writer started");
 
@@ -115,9 +113,7 @@ impl AofWriter {
 
         // Wait for the task to complete
         if let Some(handle) = self.task_handle.take() {
-            handle
-                .await
-                .map_err(|_| PersistenceError::TaskPanicked)??;
+            handle.await.map_err(|_| PersistenceError::TaskPanicked)??;
         }
 
         info!("AOF writer shutdown complete");
@@ -230,9 +226,7 @@ fn write_command(writer: &mut BufWriter<File>, command: &[RespValue]) -> Persist
     let bytes = serialize_resp(&array)?;
 
     // Write to file
-    writer
-        .write_all(&bytes)
-        .map_err(PersistenceError::Io)?;
+    writer.write_all(&bytes).map_err(PersistenceError::Io)?;
 
     Ok(())
 }
@@ -477,10 +471,16 @@ fn try_parse_resp(buf: &[u8]) -> PersistenceResult<Option<(RespValue, usize)>> {
     }
 }
 
-fn parse_simple_string(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespValue, usize)>> {
+fn parse_simple_string(
+    buf: &[u8],
+    pos: &mut usize,
+) -> PersistenceResult<Option<(RespValue, usize)>> {
     *pos += 1; // Skip '+'
     if let Some(line) = read_line(buf, pos)? {
-        Ok(Some((RespValue::SimpleString(String::from_utf8_lossy(&line).to_string()), *pos)))
+        Ok(Some((
+            RespValue::SimpleString(String::from_utf8_lossy(&line).to_string()),
+            *pos,
+        )))
     } else {
         Ok(None)
     }
@@ -489,7 +489,10 @@ fn parse_simple_string(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<
 fn parse_error(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespValue, usize)>> {
     *pos += 1; // Skip '-'
     if let Some(line) = read_line(buf, pos)? {
-        Ok(Some((RespValue::Error(String::from_utf8_lossy(&line).to_string()), *pos)))
+        Ok(Some((
+            RespValue::Error(String::from_utf8_lossy(&line).to_string()),
+            *pos,
+        )))
     } else {
         Ok(None)
     }
@@ -499,7 +502,8 @@ fn parse_integer(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespV
     *pos += 1; // Skip ':'
     if let Some(line) = read_line(buf, pos)? {
         let s = String::from_utf8_lossy(&line);
-        let i = s.parse::<i64>()
+        let i = s
+            .parse::<i64>()
             .map_err(|e| PersistenceError::Parse(format!("Invalid integer: {}", e)))?;
         Ok(Some((RespValue::Integer(i), *pos)))
     } else {
@@ -509,60 +513,67 @@ fn parse_integer(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespV
 
 fn parse_bulk_string(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespValue, usize)>> {
     *pos += 1; // Skip '$'
-    
+
     // Read length
     let len_line = match read_line(buf, pos)? {
         Some(line) => line,
         None => return Ok(None),
     };
-    
+
     let len_str = String::from_utf8_lossy(&len_line);
-    let len = len_str.parse::<i64>()
+    let len = len_str
+        .parse::<i64>()
         .map_err(|e| PersistenceError::Parse(format!("Invalid bulk string length: {}", e)))?;
-    
+
     if len == -1 {
         return Ok(Some((RespValue::Null, *pos)));
     }
-    
+
     let len = len as usize;
-    
+
     // Read data
     if *pos + len + 2 > buf.len() {
         return Ok(None); // Need more data
     }
-    
+
     let data = &buf[*pos..*pos + len];
     *pos += len;
-    
+
     // Skip \r\n
     if *pos + 2 > buf.len() || &buf[*pos..*pos + 2] != b"\r\n" {
-        return Err(PersistenceError::Parse("Missing \\r\\n after bulk string".to_string()));
+        return Err(PersistenceError::Parse(
+            "Missing \\r\\n after bulk string".to_string(),
+        ));
     }
     *pos += 2;
-    
-    Ok(Some((RespValue::BulkString(Bytes::copy_from_slice(data)), *pos)))
+
+    Ok(Some((
+        RespValue::BulkString(Bytes::copy_from_slice(data)),
+        *pos,
+    )))
 }
 
 fn parse_array(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespValue, usize)>> {
     *pos += 1; // Skip '*'
-    
+
     // Read count
     let count_line = match read_line(buf, pos)? {
         Some(line) => line,
         None => return Ok(None),
     };
-    
+
     let count_str = String::from_utf8_lossy(&count_line);
-    let count = count_str.parse::<i64>()
+    let count = count_str
+        .parse::<i64>()
         .map_err(|e| PersistenceError::Parse(format!("Invalid array count: {}", e)))?;
-    
+
     if count == -1 {
         return Ok(Some((RespValue::Null, *pos)));
     }
-    
+
     let count = count as usize;
     let mut elements = Vec::with_capacity(count);
-    
+
     for _ in 0..count {
         match try_parse_resp(&buf[*pos..])? {
             Some((value, consumed)) => {
@@ -572,7 +583,7 @@ fn parse_array(buf: &[u8], pos: &mut usize) -> PersistenceResult<Option<(RespVal
             None => return Ok(None), // Need more data
         }
     }
-    
+
     Ok(Some((RespValue::Array(elements), *pos)))
 }
 

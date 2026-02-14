@@ -131,8 +131,8 @@ pub fn client(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Returns a map of server properties:
 /// - server: "ferris-db"
 /// - version: "0.1.0"
-/// - proto: <protocol version>
-/// - id: <client id>
+/// - proto: `<protocol version>`
+/// - id: `<client id>`
 /// - mode: "standalone"
 /// - role: "master"
 /// - modules: []
