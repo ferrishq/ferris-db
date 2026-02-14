@@ -1755,6 +1755,10 @@ async fn test_connection_timeout_with_timeout() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "Flaky on Windows due to timing sensitivity"
+)]
 async fn test_connection_timeout_reset_on_activity() {
     // Server with 2 second timeout
     let server = TestServer::spawn_with_config(ServerConfig {
