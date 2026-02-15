@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
 > **Status**: Phase 1 - COMPLETE ✅  
-> **Last Updated**: 2026-02-07 (updated: ALL 151 commands implemented, including legacy RPOPLPUSH/BRPOPLPUSH, 2268 tests passing)  
+> **Last Updated**: 2026-02-14 (updated: 214 commands implemented including Stream, Scripting, ACL commands; 2549 tests passing)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -239,11 +239,52 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] CLIENT ID, CLIENT GETNAME, CLIENT SETNAME
 - [x] CLIENT LIST, CLIENT KILL
 - [x] CLIENT INFO, CLIENT SETINFO
-- [ ] CLIENT NO-EVICT
+- [x] CLIENT NO-EVICT, CLIENT NO-TOUCH
+- [x] CLIENT TRACKING, CLIENT TRACKINGINFO, CLIENT CACHING
+- [x] CLIENT GETREDIR, CLIENT UNBLOCK
+- [x] CLIENT HELP
 - [x] HELLO (RESP3 negotiation)
 - [x] QUIT, RESET
 
-### 1.14 Networking Layer
+### 1.14 Stream Commands
+- [x] **Tests**: XADD basic and with options (49 tests)
+- [x] **Tests**: XLEN, XRANGE, XREVRANGE
+- [x] **Tests**: XREAD single and multiple streams
+- [x] **Tests**: XDEL, XTRIM
+- [x] **Tests**: XINFO STREAM/GROUPS/CONSUMERS
+- [x] **Tests**: XGROUP CREATE/DESTROY/SETID/CREATECONSUMER/DELCONSUMER
+- [x] **Tests**: XACK, XPENDING
+- [x] XADD (with NOMKSTREAM, MAXLEN, MINID options)
+- [x] XLEN, XRANGE, XREVRANGE
+- [x] XREAD (COUNT option, BLOCK parsed but not blocking)
+- [x] XDEL, XTRIM
+- [x] XINFO (STREAM, GROUPS, CONSUMERS, HELP)
+- [x] XGROUP (CREATE, DESTROY, SETID, CREATECONSUMER, DELCONSUMER, HELP)
+- [x] XSETID, XACK, XPENDING
+
+### 1.15 Scripting Commands
+- [x] **Tests**: EVAL, EVAL_RO, EVALSHA, EVALSHA_RO (43 tests)
+- [x] **Tests**: SCRIPT LOAD/EXISTS/FLUSH/KILL/DEBUG/HELP
+- [x] **Tests**: FCALL, FCALL_RO
+- [x] **Tests**: FUNCTION LOAD/DELETE/FLUSH/KILL/LIST/STATS/DUMP/RESTORE/HELP
+- [x] EVAL, EVAL_RO, EVALSHA, EVALSHA_RO (script caching, returns NOSCRIPT - Lua not implemented)
+- [x] SCRIPT (LOAD, EXISTS, FLUSH, KILL, DEBUG, HELP)
+- [x] FCALL, FCALL_RO (returns function not found)
+- [x] FUNCTION (LOAD, DELETE, FLUSH, KILL, LIST, STATS, DUMP, RESTORE, HELP)
+
+### 1.16 ACL Commands
+- [x] **Tests**: ACL CAT categories and commands (37 tests)
+- [x] **Tests**: ACL WHOAMI, USERS, LIST
+- [x] **Tests**: ACL SETUSER with rules (on/off, nopass, passwords, commands, keys)
+- [x] **Tests**: ACL GETUSER, DELUSER
+- [x] **Tests**: ACL GENPASS, DRYRUN, LOAD, SAVE, LOG
+- [x] ACL CAT [category]
+- [x] ACL WHOAMI, USERS, LIST
+- [x] ACL SETUSER (on/off, nopass, passwords, commands, keys, channels)
+- [x] ACL GETUSER, DELUSER
+- [x] ACL GENPASS, DRYRUN, LOAD, SAVE, LOG, HELP
+
+### 1.17 Networking Layer
 - [x] **Tests**: Connection accept and basic command execution
 - [x] **Tests**: Pipeline support (multiple commands, single response batch)
 - [x] **Tests**: Connection timeout handling
@@ -258,7 +299,7 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] Graceful shutdown (SIGTERM/SIGINT handling)
 - [ ] Unix domain socket support (Linux/macOS)
 
-### 1.15 TLS Support
+### 1.18 TLS Support
 - [ ] **Tests**: TLS handshake success with valid certs
 - [ ] **Tests**: TLS handshake failure with invalid certs
 - [ ] **Tests**: mTLS client certificate verification
@@ -268,7 +309,7 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [ ] Optional client certificate verification (mTLS)
 - [ ] TLS port separate from plain TCP port
 
-### 1.16 Memory Management
+### 1.19 Memory Management
 - [x] **Tests**: Memory tracking accuracy
 - [x] **Tests**: maxmemory enforcement
 - [x] **Tests**: Each eviction policy behavior
@@ -289,9 +330,10 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] All commands return correct RESP2 and RESP3 responses
 - [x] Server runs on macOS (Linux/Windows cross-platform code ready)
 - [x] No unsafe code (deny(unsafe_code) in all crates)
-- [x] **151 total commands implemented** (100% of planned Phase 1 commands)
-- [x] **2,268 tests passing** (including 23 comprehensive E2E tests)
+- [x] **214 total commands implemented** (including Stream, Scripting, ACL commands)
+- [x] **2,549 tests passing** (including 166 new Stream/Scripting/ACL/CLIENT tests)
 - [x] **All tests pass** (cargo test --workspace)
+- [x] CI passing (GitHub Actions: Linux, macOS, Windows, MSRV 1.85.0)
 - [ ] `redis-py`, `Jedis`, and `node-redis` basic test suites (deferred to Phase 2)
 - [ ] Code coverage measurement setup (deferred to Phase 2)
 - [ ] Zero clippy warnings audit (minor cleanup)
