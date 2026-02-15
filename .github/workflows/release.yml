@@ -15,88 +15,14 @@ env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: ferris-db
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
-  # First, run all CI checks to ensure quality
-  ci:
-    name: CI Checks
-    uses: ./.github/workflows/ci.yml
-
-  # Create the release (runs after CI passes)
-  create-release:
-    name: Create Release
-    needs: ci
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.tag }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Release version: ${VERSION}"
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: ferris-db ${{ steps.get_version.outputs.version }}
-          body: |
-            ## ferris-db ${{ steps.get_version.outputs.version }}
-            
-            A high-performance, multi-threaded, Redis-compatible distributed key-value store written in Rust.
-            
-            ### Installation
-            
-            Download the appropriate binary for your platform below, extract it, and add it to your PATH.
-            
-            ```bash
-            # Linux (x86_64)
-            tar -xzf ferris-db-${{ steps.get_version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz
-            
-            # macOS (Intel)
-            tar -xzf ferris-db-${{ steps.get_version.outputs.version }}-x86_64-apple-darwin.tar.gz
-            
-            # macOS (Apple Silicon)
-            tar -xzf ferris-db-${{ steps.get_version.outputs.version }}-aarch64-apple-darwin.tar.gz
-            
-            # Windows
-            # Extract the zip file and add to PATH
-            ```
-            
-            ### Quick Start
-            
-            ```bash
-            # Start the server (default port: 6380)
-            ./ferris-db
-            
-            # Connect with redis-cli
-            redis-cli -p 6380
-            ```
-            
-            ### Features
-            
-            - Full Redis protocol compatibility (RESP2/RESP3)
-            - Multi-threaded with key-level locking
-            - 214+ Redis commands implemented
-            - Cross-platform (Linux, macOS, Windows)
-            
-            See the [README](https://github.com/${{ github.repository }}) for full documentation.
-          draft: false
-          prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
-
   # Build binaries for each platform
   build:
     name: Build ${{ matrix.target }}
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -106,21 +32,26 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             archive: tar.gz
+            archive_cmd: tar -czvf
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
+            archive_cmd: tar -czvf
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             archive: tar.gz
+            archive_cmd: tar -czvf
             cross: true
 
           # macOS builds
           - target: x86_64-apple-darwin
             os: macos-latest
             archive: tar.gz
+            archive_cmd: tar -czvf
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
+            archive_cmd: tar -czvf
 
           # Windows builds
           - target: x86_64-pc-windows-msvc
@@ -131,12 +62,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
+      - name: Install cross-compilation tools (Linux ARM64)
         if: matrix.cross
         run: |
           sudo apt-get update
@@ -154,20 +97,21 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build binary
-        run: |
-          cargo build --release --package ferris-server --target ${{ matrix.target }}
+        run: cargo build --release --package ferris-server --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Prepare artifacts (Unix)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
-          VERSION="${{ needs.create-release.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           ARCHIVE_NAME="${{ env.BINARY_NAME }}-${VERSION}-${{ matrix.target }}"
           mkdir -p "${ARCHIVE_NAME}"
           
           # Copy binary
           cp "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" "${ARCHIVE_NAME}/"
+          chmod +x "${ARCHIVE_NAME}/${{ env.BINARY_NAME }}"
           
           # Copy documentation
           cp README.md "${ARCHIVE_NAME}/" 2>/dev/null || true
@@ -186,7 +130,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $VERSION = "${{ needs.create-release.outputs.version }}"
+          $VERSION = "${{ steps.version.outputs.version }}"
           $ARCHIVE_NAME = "${{ env.BINARY_NAME }}-${VERSION}-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path $ARCHIVE_NAME
           
@@ -194,72 +138,153 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" -Destination "${ARCHIVE_NAME}/"
           
           # Copy documentation
-          Copy-Item README.md -Destination "${ARCHIVE_NAME}/" -ErrorAction SilentlyContinue
-          Copy-Item LICENSE* -Destination "${ARCHIVE_NAME}/" -ErrorAction SilentlyContinue
-          Copy-Item CHANGELOG.md -Destination "${ARCHIVE_NAME}/" -ErrorAction SilentlyContinue
+          if (Test-Path "README.md") { Copy-Item "README.md" -Destination "${ARCHIVE_NAME}/" }
+          Get-ChildItem -Path "." -Filter "LICENSE*" | Copy-Item -Destination "${ARCHIVE_NAME}/"
+          if (Test-Path "CHANGELOG.md") { Copy-Item "CHANGELOG.md" -Destination "${ARCHIVE_NAME}/" }
           
           # Create archive
           Compress-Archive -Path "${ARCHIVE_NAME}/*" -DestinationPath "${ARCHIVE_NAME}.${{ matrix.archive }}"
           
           # Calculate checksum
           $hash = (Get-FileHash "${ARCHIVE_NAME}.${{ matrix.archive }}" -Algorithm SHA256).Hash.ToLower()
-          "${hash}  ${ARCHIVE_NAME}.${{ matrix.archive }}" | Out-File -FilePath "${ARCHIVE_NAME}.${{ matrix.archive }}.sha256" -Encoding utf8
+          "${hash}  ${ARCHIVE_NAME}.${{ matrix.archive }}" | Out-File -FilePath "${ARCHIVE_NAME}.${{ matrix.archive }}.sha256" -Encoding utf8 -NoNewline
           
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $env:GITHUB_ENV
 
-      - name: Upload archive
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ env.ARCHIVE_NAME }}.${{ matrix.archive }}
-          asset_name: ${{ env.ARCHIVE_NAME }}.${{ matrix.archive }}
-          asset_content_type: ${{ matrix.archive == 'zip' && 'application/zip' || 'application/gzip' }}
+          name: ${{ env.ARCHIVE_NAME }}
+          path: |
+            ${{ env.ARCHIVE_NAME }}.${{ matrix.archive }}
+            ${{ env.ARCHIVE_NAME }}.${{ matrix.archive }}.sha256
+          retention-days: 1
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ env.ARCHIVE_NAME }}.${{ matrix.archive }}.sha256
-          asset_name: ${{ env.ARCHIVE_NAME }}.${{ matrix.archive }}.sha256
-          asset_content_type: text/plain
-
-  # Publish to crates.io (optional, only for stable releases)
-  publish-crates:
-    name: Publish to crates.io
-    needs: [create-release, build]
+  # Create release and upload all assets
+  release:
+    name: Create Release
+    needs: build
     runs-on: ubuntu-latest
-    if: ${{ !contains(needs.create-release.outputs.version, '-') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Publish crates
+      - name: Get version
+        id: version
         run: |
-          echo "Crates.io publishing would happen here"
-          echo "To enable, add CARGO_REGISTRY_TOKEN secret and uncomment publish commands"
-          # Publish in dependency order:
-          # cargo publish --package ferris-protocol --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # cargo publish --package ferris-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # cargo publish --package ferris-commands --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # cargo publish --package ferris-persistence --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # cargo publish --package ferris-network --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # cargo publish --package ferris-server --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f | sort
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ferris-db ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          generate_release_notes: true
+          files: |
+            artifacts/*
+          body: |
+            ## ferris-db ${{ steps.version.outputs.version }}
+            
+            A high-performance, multi-threaded, Redis-compatible distributed key-value store written in Rust.
+            
+            ### Downloads
+            
+            | Platform | Architecture | File |
+            |----------|--------------|------|
+            | Linux | x86_64 (glibc) | `ferris-db-${{ steps.version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz` |
+            | Linux | x86_64 (musl/static) | `ferris-db-${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz` |
+            | Linux | ARM64 | `ferris-db-${{ steps.version.outputs.version }}-aarch64-unknown-linux-gnu.tar.gz` |
+            | macOS | Intel (x86_64) | `ferris-db-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz` |
+            | macOS | Apple Silicon (ARM64) | `ferris-db-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz` |
+            | Windows | x86_64 | `ferris-db-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip` |
+            
+            ### Installation
+            
+            ```bash
+            # Linux/macOS
+            tar -xzf ferris-db-${{ steps.version.outputs.version }}-<platform>.tar.gz
+            cd ferris-db-${{ steps.version.outputs.version }}-<platform>
+            ./ferris-db
+            
+            # Windows (PowerShell)
+            Expand-Archive ferris-db-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip
+            cd ferris-db-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc
+            .\ferris-db.exe
+            ```
+            
+            ### Verify Downloads
+            
+            Each archive has a corresponding `.sha256` checksum file:
+            
+            ```bash
+            # Linux/macOS
+            shasum -a 256 -c ferris-db-${{ steps.version.outputs.version }}-<platform>.tar.gz.sha256
+            
+            # Windows (PowerShell)
+            (Get-FileHash ferris-db-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash
+            ```
+            
+            ### Quick Start
+            
+            ```bash
+            # Start the server (default port: 6380)
+            ./ferris-db
+            
+            # Connect with redis-cli
+            redis-cli -p 6380
+            
+            # Or use any Redis client library
+            ```
+            
+            ### Features
+            
+            - ✅ Full Redis protocol compatibility (RESP2/RESP3)
+            - ✅ Multi-threaded with key-level locking
+            - ✅ 214+ Redis commands implemented
+            - ✅ Cross-platform (Linux, macOS, Windows)
+            - ✅ No dependencies - single binary
+            
+            See the [README](https://github.com/${{ github.repository }}) for full documentation.
 
   # Build and push Docker image
   docker:
     name: Docker Image
-    needs: [create-release, build]
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -280,7 +305,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(needs.create-release.outputs.version, '-') }}
+            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-') }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
