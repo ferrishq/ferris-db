@@ -5,6 +5,9 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::needless_raw_string_hashes)]
 
 use ferris_protocol::RespValue;
 use ferris_test_utils::TestServer;

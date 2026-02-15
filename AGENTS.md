@@ -15,14 +15,28 @@ Every implementation task **MUST** satisfy all of the following:
    - Use `cargo tarpaulin` or `cargo llvm-cov` to verify.
    - **20 unique test scenarios per command**: For each command, understand its Redis semantics fully, review the implementation, and combine both understandings to derive 20 unique test scenarios. Each test must exercise a distinct behavior or code path. Duplicate or near-duplicate tests are not acceptable.
 
-2. **Implementation MUST be multi-threaded.**
+2. **Run clippy after ANY code changes.**
+   - **ALWAYS** run `cargo clippy --workspace --all-targets -- -D warnings` after modifying any code.
+   - All clippy warnings MUST be fixed before considering the task complete.
+   - This includes test files - add appropriate `#![allow(...)]` attributes if needed.
+   - CI will fail if clippy warnings exist, so check locally first.
+   - Common test file allows:
+     ```rust
+     #![allow(clippy::unwrap_used)]
+     #![allow(clippy::expect_used)]
+     #![allow(clippy::uninlined_format_args)]
+     #![allow(clippy::manual_let_else)]
+     #![allow(clippy::needless_raw_string_hashes)]
+     ```
+
+3. **Implementation MUST be multi-threaded.**
    - Use `DashMap`-based sharded storage (key-level locking, NOT global locks).
    - Single-key operations lock only the relevant shard.
    - Multi-key operations sort shards by index before locking (prevents deadlocks).
    - Blocking operations use `tokio::sync::Notify` per key.
    - Never use `std::sync::Mutex` or any global lock that blocks unrelated keys.
 
-3. **Follow the design in DESIGN.md strictly.**
+4. **Follow the design in DESIGN.md strictly.**
    - All data types use the `RedisValue` enum defined in `ferris-core`.
    - All commands follow the handler pattern: `fn(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult`.
    - Commands must be registered in `registry.rs` with correct arity and flags.
