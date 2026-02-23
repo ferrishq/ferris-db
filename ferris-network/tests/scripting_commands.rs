@@ -341,7 +341,7 @@ async fn test_script_exists_after_load() {
             .unwrap()
             .as_nanos()
     );
-    
+
     let sha_result = client.cmd(&["SCRIPT", "LOAD", &unique_script]).await;
     let sha = match sha_result {
         RespValue::BulkString(s) => String::from_utf8_lossy(&s).to_string(),
