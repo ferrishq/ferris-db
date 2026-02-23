@@ -6,7 +6,7 @@
 use crate::{CommandContext, CommandError, CommandResult};
 use bytes::Bytes;
 use ferris_protocol::RespValue;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 /// Transaction state for a client connection
 #[derive(Debug, Clone, Default)]
@@ -16,7 +16,8 @@ pub struct TransactionState {
     /// Queued commands to execute on EXEC
     queued_commands: Vec<(String, Vec<RespValue>)>,
     /// Keys being watched for modifications (WATCH command)
-    watched_keys: HashSet<(usize, Bytes)>, // (db_index, key)
+    /// Maps (db_index, key) -> version at time of WATCH
+    watched_keys: HashMap<(usize, Bytes), u64>,
     /// Whether any watched key was modified (transaction should abort)
     transaction_aborted: bool,
 }
@@ -63,9 +64,9 @@ impl TransactionState {
         self.transaction_aborted = false;
     }
 
-    /// Add a key to the watch list
-    pub fn watch_key(&mut self, db_index: usize, key: Bytes) {
-        self.watched_keys.insert((db_index, key));
+    /// Add a key to the watch list with its current version
+    pub fn watch_key(&mut self, db_index: usize, key: Bytes, version: u64) {
+        self.watched_keys.insert((db_index, key), version);
     }
 
     /// Clear all watched keys
@@ -77,7 +78,19 @@ impl TransactionState {
     /// Check if a key is being watched
     pub fn is_watching(&self, db_index: usize, key: &[u8]) -> bool {
         self.watched_keys
-            .contains(&(db_index, Bytes::copy_from_slice(key)))
+            .contains_key(&(db_index, Bytes::copy_from_slice(key)))
+    }
+
+    /// Get the watched version of a key, if any
+    pub fn get_watched_version(&self, db_index: usize, key: &[u8]) -> Option<u64> {
+        self.watched_keys
+            .get(&(db_index, Bytes::copy_from_slice(key)))
+            .copied()
+    }
+
+    /// Get all watched keys with their versions
+    pub fn watched_keys(&self) -> &HashMap<(usize, Bytes), u64> {
+        &self.watched_keys
     }
 
     /// Mark transaction as aborted (watched key was modified)
@@ -94,8 +107,8 @@ impl TransactionState {
     pub fn watched_keys_in_db(&self, db_index: usize) -> Vec<Bytes> {
         self.watched_keys
             .iter()
-            .filter(|(db, _)| *db == db_index)
-            .map(|(_, key)| key.clone())
+            .filter(|((db, _), _)| *db == db_index)
+            .map(|((_, key), _)| key.clone())
             .collect()
     }
 }
@@ -137,7 +150,23 @@ pub fn exec(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         ));
     }
 
-    // Check if transaction should abort due to watched key modification
+    // Check if any watched keys were modified by comparing versions
+    let watched_keys = ctx.transaction_state().watched_keys().clone();
+    for ((db_index, key), watched_version) in &watched_keys {
+        let current_version = ctx
+            .store()
+            .get_with_version(*db_index, key)
+            .map(|(_, v)| v)
+            .unwrap_or(0);
+
+        if current_version != *watched_version {
+            // Key was modified, abort transaction
+            ctx.transaction_state_mut().finish();
+            return Ok(RespValue::Null);
+        }
+    }
+
+    // Also check the legacy abort flag (for compatibility)
     if ctx.transaction_state().is_aborted() {
         ctx.transaction_state_mut().finish();
         return Ok(RespValue::Null);
@@ -231,7 +260,15 @@ pub fn watch(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             .or_else(|| arg.as_str().map(|s| Bytes::from(s.to_owned())))
             .ok_or_else(|| CommandError::InvalidArgument("invalid key".to_string()))?;
 
-        ctx.transaction_state_mut().watch_key(db_index, key);
+        // Get the current version of the key (or 0 if it doesn't exist)
+        let version = ctx
+            .store()
+            .get_with_version(db_index, &key)
+            .map(|(_, version)| version)
+            .unwrap_or(0);
+
+        ctx.transaction_state_mut()
+            .watch_key(db_index, key, version);
     }
 
     Ok(RespValue::ok())
@@ -297,7 +334,7 @@ mod tests {
         let mut state = TransactionState::new();
         state.begin();
         state.queue_command("SET".to_string(), vec![]);
-        state.watch_key(0, Bytes::from("key"));
+        state.watch_key(0, Bytes::from("key"), 1);
         state.finish();
 
         assert!(!state.in_transaction());
@@ -308,9 +345,9 @@ mod tests {
     #[test]
     fn test_watch_keys() {
         let mut state = TransactionState::new();
-        state.watch_key(0, Bytes::from("key1"));
-        state.watch_key(0, Bytes::from("key2"));
-        state.watch_key(1, Bytes::from("key3"));
+        state.watch_key(0, Bytes::from("key1"), 1);
+        state.watch_key(0, Bytes::from("key2"), 1);
+        state.watch_key(1, Bytes::from("key3"), 1);
 
         assert!(state.is_watching(0, b"key1"));
         assert!(state.is_watching(0, b"key2"));
@@ -321,7 +358,7 @@ mod tests {
     #[test]
     fn test_unwatch() {
         let mut state = TransactionState::new();
-        state.watch_key(0, Bytes::from("key"));
+        state.watch_key(0, Bytes::from("key"), 1);
         state.unwatch();
 
         assert!(!state.is_watching(0, b"key"));

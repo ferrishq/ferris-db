@@ -159,8 +159,27 @@ pub async fn handle_connection(
                     let is_quit = cmd.name == "QUIT";
                     let is_hello = cmd.name == "HELLO";
 
-                    // Execute the command
-                    let response = match executor.execute(&mut ctx, &cmd) {
+                    // Check if we're in a transaction (MULTI mode)
+                    // If so, queue the command instead of executing it
+                    // Exception: EXEC, DISCARD, MULTI, WATCH, UNWATCH should be executed immediately
+                    let response = if ctx.transaction_state().in_transaction()
+                        && cmd.name != "EXEC"
+                        && cmd.name != "DISCARD"
+                        && cmd.name != "MULTI"
+                        && cmd.name != "WATCH"
+                        && cmd.name != "UNWATCH"
+                    {
+                        // Queue the command
+                        let args: Vec<RespValue> = cmd
+                            .args
+                            .iter()
+                            .map(|b| RespValue::BulkString(b.clone()))
+                            .collect();
+                        ctx.transaction_state_mut().queue_command(cmd.name.clone(), args);
+                        RespValue::SimpleString("QUEUED".to_string())
+                    } else {
+                        // Execute the command normally
+                        match executor.execute(&mut ctx, &cmd) {
                         Ok(resp) => resp,
                         Err(CommandError::Block(action)) => {
                             // Blocking commands break the pipeline
@@ -186,6 +205,7 @@ pub async fn handle_connection(
                             }
                         }
                         Err(e) => RespValue::Error(e.to_resp_string()),
+                        }
                     };
 
                     // If this was a HELLO command that changed the protocol version,

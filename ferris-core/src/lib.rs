@@ -50,6 +50,7 @@ pub mod memory;
 pub mod pubsub;
 pub mod store;
 pub mod value;
+pub mod watch_registry;
 
 pub use blocking::BlockingRegistry;
 pub use expiry::ExpiryManager;
@@ -59,3 +60,4 @@ pub use store::{Database, KeyStore};
 pub use value::{
     Consumer, ConsumerGroup, Entry, PendingEntry, RedisValue, StreamData, StreamEntry, StreamId,
 };
+pub use watch_registry::{ClientId, WatchRegistry};

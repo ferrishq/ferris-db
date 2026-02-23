@@ -88,7 +88,11 @@ impl Database {
     }
 
     /// Set an entry, tracking memory usage
-    pub fn set(&self, key: Bytes, entry: Entry) {
+    /// Automatically increments the version for optimistic locking (WATCH)
+    pub fn set(&self, key: Bytes, mut entry: Entry) {
+        // Increment version for optimistic locking (WATCH command)
+        entry.increment_version();
+
         let new_size = Self::entry_size(&key, &entry);
 
         // Check if we're overwriting an existing key
@@ -114,7 +118,11 @@ impl Database {
 
     /// Set an entry with eviction if needed
     /// Returns `SetResult::OutOfMemory` if eviction fails and policy is `NoEviction`
-    pub fn set_with_eviction(&self, key: Bytes, entry: Entry) -> SetResult {
+    /// Automatically increments the version for optimistic locking (WATCH)
+    pub fn set_with_eviction(&self, key: Bytes, mut entry: Entry) -> SetResult {
+        // Increment version for optimistic locking (WATCH command)
+        entry.increment_version();
+
         let new_size = Self::entry_size(&key, &entry);
 
         // Check if we're overwriting an existing key
@@ -494,6 +502,18 @@ impl KeyStore {
     /// Reset memory stats
     pub fn reset_memory_stats(&self) {
         self.memory_tracker.reset_stats();
+    }
+
+    /// Get an entry with its version number for optimistic locking (WATCH)
+    /// Returns None if the key doesn't exist or has expired
+    pub fn get_with_version(&self, db_index: usize, key: &[u8]) -> Option<(Entry, u64)> {
+        self.database(db_index).get_no_touch(key).and_then(|entry| {
+            if entry.is_expired() {
+                None
+            } else {
+                Some((entry.clone(), entry.version))
+            }
+        })
     }
 
     /// Swap two databases by index.
