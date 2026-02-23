@@ -105,9 +105,9 @@ impl CommandContext {
     pub fn with_resources(
         store: Arc<KeyStore>,
         blocking_registry: Arc<BlockingRegistry>,
+        pubsub_registry: Arc<PubSubRegistry>,
         aof_writer: Option<Arc<AofWriter>>,
     ) -> Self {
-        let pubsub_registry = Arc::new(PubSubRegistry::new());
         let (subscriber_id, _rx) = pubsub_registry.register_subscriber();
         Self {
             store,

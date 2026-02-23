@@ -19,7 +19,7 @@
 use crate::shutdown::Shutdown;
 use bytes::Bytes;
 use ferris_commands::{BlockingAction, CommandContext, CommandError, CommandExecutor};
-use ferris_core::BlockingRegistry;
+use ferris_core::{BlockingRegistry, PubSubRegistry};
 use ferris_persistence::AofWriter;
 use ferris_protocol::{Command, ProtocolVersion, RespCodec, RespValue};
 use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
@@ -43,11 +43,13 @@ use tracing::{debug, trace, warn};
 /// available in the buffer, they are all parsed, executed in order,
 /// and their responses are sent back in order. This improves throughput
 /// by reducing round-trip latency.
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_connection(
     stream: TcpStream,
     executor: Arc<CommandExecutor>,
     store: Arc<ferris_core::KeyStore>,
     blocking_registry: Arc<BlockingRegistry>,
+    pubsub_registry: Arc<PubSubRegistry>,
     aof_writer: Option<Arc<AofWriter>>,
     mut shutdown: Shutdown,
     timeout_secs: u64,
@@ -60,7 +62,7 @@ pub async fn handle_connection(
     debug!(peer = %peer, "New connection");
 
     let mut framed = Framed::new(stream, RespCodec::new());
-    let mut ctx = CommandContext::with_resources(store, blocking_registry, aof_writer);
+    let mut ctx = CommandContext::with_resources(store, blocking_registry, pubsub_registry, aof_writer);
 
     // Create timeout sleep future if timeout is enabled
     let timeout_duration = if timeout_secs > 0 {

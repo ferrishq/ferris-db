@@ -5,7 +5,7 @@
 use crate::connection::handle_connection;
 use crate::shutdown::Shutdown;
 use ferris_commands::CommandExecutor;
-use ferris_core::{BlockingRegistry, KeyStore};
+use ferris_core::{BlockingRegistry, KeyStore, PubSubRegistry};
 use ferris_persistence::AofWriter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -58,6 +58,8 @@ pub struct Server {
     executor: Arc<CommandExecutor>,
     /// Shared blocking registry for blocking commands
     blocking_registry: Arc<BlockingRegistry>,
+    /// Shared pub/sub registry for publish/subscribe
+    pubsub_registry: Arc<PubSubRegistry>,
     /// Optional AOF writer for persistence
     aof_writer: Option<Arc<AofWriter>>,
     /// Current number of active connections
@@ -71,6 +73,7 @@ impl Server {
     pub fn new(config: ServerConfig, store: Arc<KeyStore>) -> Self {
         let executor = Arc::new(CommandExecutor::new());
         let blocking_registry = Arc::new(BlockingRegistry::new());
+        let pubsub_registry = Arc::new(PubSubRegistry::new());
         let (shutdown_tx, _) = broadcast::channel(1);
 
         Self {
@@ -78,6 +81,7 @@ impl Server {
             store,
             executor,
             blocking_registry,
+            pubsub_registry,
             aof_writer: None,
             active_connections: Arc::new(AtomicUsize::new(0)),
             shutdown_tx,
@@ -92,6 +96,7 @@ impl Server {
     ) -> Self {
         let executor = Arc::new(CommandExecutor::new());
         let blocking_registry = Arc::new(BlockingRegistry::new());
+        let pubsub_registry = Arc::new(PubSubRegistry::new());
         let (shutdown_tx, _) = broadcast::channel(1);
 
         Self {
@@ -99,6 +104,7 @@ impl Server {
             store,
             executor,
             blocking_registry,
+            pubsub_registry,
             aof_writer: Some(aof_writer),
             active_connections: Arc::new(AtomicUsize::new(0)),
             shutdown_tx,
@@ -160,13 +166,14 @@ impl Server {
                             let executor = self.executor.clone();
                             let store = self.store.clone();
                             let blocking_registry = self.blocking_registry.clone();
+                            let pubsub_registry = self.pubsub_registry.clone();
                             let aof_writer = self.aof_writer.clone();
                             let shutdown = Shutdown::new(self.shutdown_tx.subscribe());
                             let active_connections = self.active_connections.clone();
                             let timeout = self.config.timeout;
 
                             tokio::spawn(async move {
-                                handle_connection(stream, executor, store, blocking_registry, aof_writer, shutdown, timeout).await;
+                                handle_connection(stream, executor, store, blocking_registry, pubsub_registry, aof_writer, shutdown, timeout).await;
                                 active_connections.fetch_sub(1, Ordering::Relaxed);
                             });
                         }
@@ -231,13 +238,14 @@ impl Server {
                             let executor = self.executor.clone();
                             let store = self.store.clone();
                             let blocking_registry = self.blocking_registry.clone();
+                            let pubsub_registry = self.pubsub_registry.clone();
                             let aof_writer = self.aof_writer.clone();
                             let shutdown = Shutdown::new(self.shutdown_tx.subscribe());
                             let active_connections = self.active_connections.clone();
                             let timeout = self.config.timeout;
 
                             tokio::spawn(async move {
-                                handle_connection(stream, executor, store, blocking_registry, aof_writer, shutdown, timeout).await;
+                                handle_connection(stream, executor, store, blocking_registry, pubsub_registry, aof_writer, shutdown, timeout).await;
                                 active_connections.fetch_sub(1, Ordering::Relaxed);
                             });
                         }
