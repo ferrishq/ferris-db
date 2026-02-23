@@ -257,7 +257,6 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "SHUTDOWN",
         cmd("SHUTDOWN", -1, admin_flags(), crate::server::shutdown),
     );
-    registry.register("ROLE", cmd("ROLE", 1, read_flags(), crate::server::role));
 
     // HyperLogLog commands
     registry.register(
@@ -1074,6 +1073,28 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
 
     // ACL commands
     registry.register("ACL", cmd("ACL", -2, admin_flags(), crate::acl::acl));
+
+    // Replication commands
+    registry.register(
+        "REPLICAOF",
+        cmd("REPLICAOF", 3, admin_flags(), crate::replication::replicaof),
+    );
+    registry.register(
+        "SLAVEOF",
+        cmd("SLAVEOF", 3, admin_flags(), crate::replication::slaveof),
+    );
+    registry.register(
+        "ROLE",
+        cmd("ROLE", 1, fast_read_flags(), crate::replication::role),
+    );
+    registry.register(
+        "WAIT",
+        cmd("WAIT", 3, read_flags(), crate::replication::wait),
+    );
+    registry.register(
+        "WAITAOF",
+        cmd("WAITAOF", 4, read_flags(), crate::replication::waitaof),
+    );
 }
 
 #[cfg(test)]

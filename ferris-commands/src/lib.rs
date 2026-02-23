@@ -105,6 +105,7 @@ pub mod hyperloglog;
 pub mod key;
 pub mod list;
 pub mod pubsub;
+pub mod replication;
 pub mod scripting;
 pub mod server;
 pub mod set;

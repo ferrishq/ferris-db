@@ -1735,18 +1735,3 @@ pub fn shutdown(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
             .to_string(),
     ))
 }
-
-/// ROLE
-///
-/// Returns the role of the instance (master/replica).
-/// Currently always returns "master" since replication isn't fully implemented.
-///
-/// Time complexity: O(1)
-pub fn role(_ctx: &mut CommandContext, _args: &[RespValue]) -> CommandResult {
-    // Return master role with empty replica list
-    Ok(RespValue::Array(vec![
-        RespValue::BulkString(Bytes::from("master")),
-        RespValue::Integer(0),    // Replication offset
-        RespValue::Array(vec![]), // Empty replica list
-    ]))
-}

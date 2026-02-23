@@ -443,7 +443,19 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 
 **Goal**: Leader/follower replication with configurable consistency guarantees.
 
-**Status**: Not Started
+**Status**: In Progress
+
+### 3.0 Basic Replication Commands ✅ COMPLETE
+- [x] **Tests**: REPLICAOF basic usage (20 integration tests)
+- [x] **Tests**: SLAVEOF alias works
+- [x] **Tests**: ROLE returns master info
+- [x] **Tests**: WAIT command returns replica count
+- [x] **Tests**: WAITAOF returns ack status
+- [x] REPLICAOF command (stub implementation)
+- [x] SLAVEOF alias for REPLICAOF
+- [x] ROLE command
+- [x] WAIT command (stub implementation)
+- [x] WAITAOF command (stub implementation)
 
 ### 3.1 Leader Replication Stream
 - [ ] **Tests**: Follower receives all commands from leader
@@ -462,12 +474,12 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [ ] **Tests**: Incremental sync after brief disconnect
 - [ ] **Tests**: Follower rejects write commands
 - [ ] **Tests**: REPLICAOF NO ONE promotes to leader
-- [ ] REPLICAOF (SLAVEOF) command
+- [x] REPLICAOF (SLAVEOF) command (needs implementation)
 - [ ] Initial full synchronization
 - [ ] Incremental synchronization
 - [ ] Follower read-only mode
 - [ ] Connection retry with exponential backoff
-- [ ] REPLICAOF NO ONE (promote to leader)
+- [x] REPLICAOF NO ONE (promote to leader - needs implementation)
 
 ### 3.3-3.6 Replication Features
 - [ ] **Tests**: Partial resync after short disconnect
@@ -476,7 +488,7 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [ ] **Tests**: Consistency modes affect client latency
 - [ ] Replication backlog
 - [ ] PSYNC protocol
-- [ ] WAIT command
+- [x] WAIT command (needs implementation)
 - [ ] Configurable consistency modes (async, semi-sync, sync)
 
 ### Phase 3 Milestone Criteria
