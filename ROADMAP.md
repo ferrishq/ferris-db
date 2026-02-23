@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
-> **Status**: Phase 1 - COMPLETE ✅  
-> **Last Updated**: 2026-02-14 (updated: 214 commands implemented including Stream, Scripting, ACL commands; 2549 tests passing)  
+> **Status**: Phase 2 - IN PROGRESS 🚧  
+> **Last Updated**: 2026-02-23 (updated: 219 commands implemented; 2570 tests passing; MULTI/EXEC/WATCH transactions complete)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -346,33 +346,33 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 
 **Status**: In Progress 🚧 (Started: February 7, 2026)
 
-### 2.1 Transactions: MULTI/EXEC/DISCARD
-- [ ] **Tests**: MULTI/EXEC basic transaction
-- [ ] **Tests**: Command queuing during MULTI
-- [ ] **Tests**: DISCARD aborts and clears queue
-- [ ] **Tests**: Error during queue vs error during exec
-- [ ] **Tests**: Nested MULTI rejection
-- [ ] **Tests**: Transaction atomicity (concurrent observer)
-- [ ] **Tests**: Transaction isolation (no interleaving)
-- [ ] Per-connection command queue during MULTI
-- [ ] Atomic execution of queued commands on EXEC
-- [ ] DISCARD to abort transaction
-- [ ] Correct error handling (command errors during queue vs execution)
-- [ ] Nested MULTI prevention
+### 2.1 Transactions: MULTI/EXEC/DISCARD ✅ COMPLETE
+- [x] **Tests**: MULTI/EXEC basic transaction
+- [x] **Tests**: Command queuing during MULTI
+- [x] **Tests**: DISCARD aborts and clears queue
+- [x] **Tests**: Error during queue vs error during exec
+- [x] **Tests**: Nested MULTI rejection
+- [x] **Tests**: Transaction atomicity (concurrent observer)
+- [x] **Tests**: Transaction isolation (no interleaving)
+- [x] Per-connection command queue during MULTI
+- [x] Atomic execution of queued commands on EXEC
+- [x] DISCARD to abort transaction
+- [x] Correct error handling (command errors during queue vs execution)
+- [x] Nested MULTI prevention
 
-### 2.2 Transactions: WATCH/UNWATCH
-- [ ] **Tests**: WATCH detects modification before EXEC
-- [ ] **Tests**: WATCH on non-existing key, then key created
-- [ ] **Tests**: Multiple WATCH keys, one modified
-- [ ] **Tests**: UNWATCH clears all watches
-- [ ] **Tests**: WATCH expires on EXEC (success or failure)
-- [ ] **Tests**: WATCH + DISCARD clears watches
-- [ ] **Tests**: Connection close clears watches
-- [ ] Optimistic locking via key version tracking
-- [ ] WATCH registers keys with their current version
-- [ ] EXEC fails (returns nil) if any watched key was modified
-- [ ] UNWATCH clears all watches for connection
-- [ ] Watch state cleanup on DISCARD, EXEC, and connection close
+### 2.2 Transactions: WATCH/UNWATCH ✅ COMPLETE
+- [x] **Tests**: WATCH detects modification before EXEC
+- [x] **Tests**: WATCH on non-existing key, then key created
+- [x] **Tests**: Multiple WATCH keys, one modified
+- [x] **Tests**: UNWATCH clears all watches
+- [x] **Tests**: WATCH expires on EXEC (success or failure)
+- [x] **Tests**: WATCH + DISCARD keeps watches (correct Redis behavior)
+- [x] **Tests**: Connection close clears watches
+- [x] Optimistic locking via key version tracking
+- [x] WATCH registers keys with their current version
+- [x] EXEC fails (returns nil) if any watched key was modified
+- [x] UNWATCH clears all watches for connection
+- [x] Watch state cleanup on DISCARD, EXEC, and connection close
 
 ### 2.3 Pub/Sub
 - [ ] **Tests**: SUBSCRIBE/PUBLISH basic message delivery
