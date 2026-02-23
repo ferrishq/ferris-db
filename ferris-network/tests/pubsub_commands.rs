@@ -394,9 +394,9 @@ async fn test_mixed_subscribe_and_psubscribe() {
     // Should match both subscription and pattern
     let result = publisher.cmd(&["PUBLISH", "news.sports", "Game on!"]).await;
     
-    // In Redis, the subscriber gets the message twice (once for channel, once for pattern)
-    // But PUBLISH returns the number of clients, not messages
-    assert_eq!(result, RespValue::Integer(1)); // 1 client received it
+    // The subscriber gets the message twice (once for channel, once for pattern)
+    // PUBLISH returns 2 because both subscriptions matched (even though same client)
+    assert_eq!(result, RespValue::Integer(2));
 
     server.stop().await;
 }

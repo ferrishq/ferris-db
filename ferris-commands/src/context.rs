@@ -1,11 +1,12 @@
 //! Command execution context
 
 use crate::transaction::TransactionState;
-use ferris_core::{BlockingRegistry, KeyStore, PubSubRegistry, SubscriberId};
+use ferris_core::{BlockingRegistry, KeyStore, PubSubMessage, PubSubRegistry, SubscriberId};
 use ferris_persistence::AofWriter;
 use ferris_protocol::RespValue;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tracing::warn;
 
 /// Global counter for assigning unique client IDs
@@ -21,6 +22,9 @@ pub struct CommandContext {
     pubsub_registry: Arc<PubSubRegistry>,
     /// Subscriber ID for pub/sub
     subscriber_id: SubscriberId,
+    /// Receiver for pub/sub messages (kept alive to prevent channel closure)
+    #[allow(dead_code)]
+    pubsub_receiver: mpsc::UnboundedReceiver<PubSubMessage>,
     /// Optional AOF writer for persistence
     aof_writer: Option<Arc<AofWriter>>,
     /// Unique client ID assigned when the context is created
@@ -42,12 +46,13 @@ impl CommandContext {
     #[must_use]
     pub fn new(store: Arc<KeyStore>) -> Self {
         let pubsub_registry = Arc::new(PubSubRegistry::new());
-        let (subscriber_id, _rx) = pubsub_registry.register_subscriber();
+        let (subscriber_id, pubsub_receiver) = pubsub_registry.register_subscriber();
         Self {
             store,
             blocking_registry: Arc::new(BlockingRegistry::new()),
             pubsub_registry,
             subscriber_id,
+            pubsub_receiver,
             aof_writer: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
@@ -61,12 +66,13 @@ impl CommandContext {
     /// Create a context with a shared pub/sub registry
     #[must_use]
     pub fn with_pubsub(store: Arc<KeyStore>, pubsub_registry: Arc<PubSubRegistry>) -> Self {
-        let (subscriber_id, _rx) = pubsub_registry.register_subscriber();
+        let (subscriber_id, pubsub_receiver) = pubsub_registry.register_subscriber();
         Self {
             store,
             blocking_registry: Arc::new(BlockingRegistry::new()),
             pubsub_registry,
             subscriber_id,
+            pubsub_receiver,
             aof_writer: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
@@ -84,12 +90,13 @@ impl CommandContext {
         blocking_registry: Arc<BlockingRegistry>,
     ) -> Self {
         let pubsub_registry = Arc::new(PubSubRegistry::new());
-        let (subscriber_id, _rx) = pubsub_registry.register_subscriber();
+        let (subscriber_id, pubsub_receiver) = pubsub_registry.register_subscriber();
         Self {
             store,
             blocking_registry,
             pubsub_registry,
             subscriber_id,
+            pubsub_receiver,
             aof_writer: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
@@ -108,12 +115,13 @@ impl CommandContext {
         pubsub_registry: Arc<PubSubRegistry>,
         aof_writer: Option<Arc<AofWriter>>,
     ) -> Self {
-        let (subscriber_id, _rx) = pubsub_registry.register_subscriber();
+        let (subscriber_id, pubsub_receiver) = pubsub_registry.register_subscriber();
         Self {
             store,
             blocking_registry,
             pubsub_registry,
             subscriber_id,
+            pubsub_receiver,
             aof_writer,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
