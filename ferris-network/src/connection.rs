@@ -62,7 +62,8 @@ pub async fn handle_connection(
     debug!(peer = %peer, "New connection");
 
     let mut framed = Framed::new(stream, RespCodec::new());
-    let mut ctx = CommandContext::with_resources(store, blocking_registry, pubsub_registry, aof_writer);
+    let mut ctx =
+        CommandContext::with_resources(store, blocking_registry, pubsub_registry, aof_writer);
 
     // Create timeout sleep future if timeout is enabled
     let timeout_duration = if timeout_secs > 0 {

@@ -27,7 +27,7 @@ async fn test_subscribe_basic() {
 
     // Subscribe to a channel
     let result = client.cmd(&["SUBSCRIBE", "channel1"]).await;
-    
+
     // Should return subscription confirmation
     match result {
         RespValue::Array(confirmations) => {
@@ -61,14 +61,15 @@ async fn test_subscribe_multiple_channels() {
     match result {
         RespValue::Array(confirmations) => {
             assert_eq!(confirmations.len(), 3);
-            
+
             // Verify each subscription confirmation
             for (i, confirmation) in confirmations.iter().enumerate() {
                 match confirmation {
                     RespValue::Array(parts) => {
                         assert_eq!(parts.len(), 3);
                         assert_eq!(parts[0], RespValue::bulk_string("subscribe"));
-                        assert_eq!(parts[2], RespValue::Integer((i + 1) as i64)); // Count increases
+                        assert_eq!(parts[2], RespValue::Integer((i + 1) as i64));
+                        // Count increases
                     }
                     _ => panic!("Expected array"),
                 }
@@ -228,9 +229,7 @@ async fn test_psubscribe_pattern_matching() {
 
     // Publish to matching channels
     let result1 = publisher.cmd(&["PUBLISH", "news.sports", "Goal!"]).await;
-    let result2 = publisher
-        .cmd(&["PUBLISH", "news.weather", "Sunny"])
-        .await;
+    let result2 = publisher.cmd(&["PUBLISH", "news.weather", "Sunny"]).await;
     let result3 = publisher.cmd(&["PUBLISH", "other.topic", "Ignored"]).await;
 
     assert_eq!(result1, RespValue::Integer(1)); // Matched pattern
@@ -305,7 +304,8 @@ async fn test_pubsub_channels_pattern() {
     let mut query = server.client().await;
 
     // Subscribe to various channels
-    sub1.cmd(&["SUBSCRIBE", "news.sports", "news.weather"]).await;
+    sub1.cmd(&["SUBSCRIBE", "news.sports", "news.weather"])
+        .await;
     sub2.cmd(&["SUBSCRIBE", "other.topic"]).await;
 
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -340,7 +340,9 @@ async fn test_pubsub_numsub() {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Query subscriber counts
-    let result = query.cmd(&["PUBSUB", "NUMSUB", "channel1", "channel2"]).await;
+    let result = query
+        .cmd(&["PUBSUB", "NUMSUB", "channel1", "channel2"])
+        .await;
 
     match result {
         RespValue::Array(pairs) => {
@@ -393,7 +395,7 @@ async fn test_mixed_subscribe_and_psubscribe() {
     // Publish to the channel
     // Should match both subscription and pattern
     let result = publisher.cmd(&["PUBLISH", "news.sports", "Game on!"]).await;
-    
+
     // The subscriber gets the message twice (once for channel, once for pattern)
     // PUBLISH returns 2 because both subscriptions matched (even though same client)
     assert_eq!(result, RespValue::Integer(2));
