@@ -412,8 +412,15 @@ async fn test_script_flush() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    // Load a script
-    let sha_result = client.cmd(&["SCRIPT", "LOAD", "return 1"]).await;
+    // Load a unique script to avoid collision with other tests
+    let unique_script = format!(
+        "return 'flush_test_{}'",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let sha_result = client.cmd(&["SCRIPT", "LOAD", &unique_script]).await;
     let sha = match sha_result {
         RespValue::BulkString(s) => String::from_utf8_lossy(&s).to_string(),
         _ => panic!("Expected BulkString"),
@@ -423,10 +430,12 @@ async fn test_script_flush() {
     let flush_result = client.cmd(&["SCRIPT", "FLUSH"]).await;
     assert_eq!(flush_result, RespValue::SimpleString("OK".to_string()));
 
-    // Script should no longer exist
+    // Script should no longer exist (flush clears all scripts)
+    // Note: Due to parallel tests, another test might have added scripts after our flush
     let exists_result = client.cmd(&["SCRIPT", "EXISTS", &sha]).await;
     match exists_result {
         RespValue::Array(arr) => {
+            // After flush, the script we loaded should be gone
             assert_eq!(arr[0], RespValue::Integer(0));
         }
         _ => panic!("Expected Array"),
