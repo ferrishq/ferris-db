@@ -12,6 +12,7 @@ description = "Command implementations for ferris-db"
 ferris-core.workspace = true
 ferris-protocol.workspace = true
 ferris-persistence.workspace = true
+ferris-replication.workspace = true
 
 bytes.workspace = true
 thiserror.workspace = true

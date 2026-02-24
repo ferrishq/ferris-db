@@ -13,6 +13,7 @@ ferris-protocol.workspace = true
 ferris-commands.workspace = true
 ferris-core.workspace = true
 ferris-persistence.workspace = true
+ferris-replication.workspace = true
 
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }

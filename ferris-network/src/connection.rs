@@ -21,6 +21,7 @@ use bytes::Bytes;
 use ferris_commands::{BlockingAction, CommandContext, CommandError, CommandExecutor};
 use ferris_core::{BlockingRegistry, PubSubRegistry};
 use ferris_persistence::AofWriter;
+use ferris_replication::ReplicationManager;
 use ferris_protocol::{Command, ProtocolVersion, RespCodec, RespValue};
 use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
 use std::sync::Arc;
@@ -51,6 +52,7 @@ pub async fn handle_connection(
     blocking_registry: Arc<BlockingRegistry>,
     pubsub_registry: Arc<PubSubRegistry>,
     aof_writer: Option<Arc<AofWriter>>,
+    replication_manager: Option<Arc<ReplicationManager>>,
     mut shutdown: Shutdown,
     timeout_secs: u64,
 ) {
@@ -62,8 +64,13 @@ pub async fn handle_connection(
     debug!(peer = %peer, "New connection");
 
     let mut framed = Framed::new(stream, RespCodec::new());
-    let mut ctx =
-        CommandContext::with_resources(store, blocking_registry, pubsub_registry, aof_writer);
+    let mut ctx = CommandContext::with_resources(
+        store,
+        blocking_registry,
+        pubsub_registry,
+        aof_writer,
+        replication_manager,
+    );
 
     // Create timeout sleep future if timeout is enabled
     let timeout_duration = if timeout_secs > 0 {

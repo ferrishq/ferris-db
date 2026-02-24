@@ -7,6 +7,7 @@ use crate::shutdown::Shutdown;
 use ferris_commands::CommandExecutor;
 use ferris_core::{BlockingRegistry, KeyStore, PubSubRegistry};
 use ferris_persistence::AofWriter;
+use ferris_replication::ReplicationManager;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -62,6 +63,8 @@ pub struct Server {
     pubsub_registry: Arc<PubSubRegistry>,
     /// Optional AOF writer for persistence
     aof_writer: Option<Arc<AofWriter>>,
+    /// Optional replication manager
+    replication_manager: Option<Arc<ReplicationManager>>,
     /// Current number of active connections
     active_connections: Arc<AtomicUsize>,
     /// Broadcast sender for shutdown signal
@@ -74,6 +77,7 @@ impl Server {
         let executor = Arc::new(CommandExecutor::new());
         let blocking_registry = Arc::new(BlockingRegistry::new());
         let pubsub_registry = Arc::new(PubSubRegistry::new());
+        let replication_manager = Arc::new(ReplicationManager::new());
         let (shutdown_tx, _) = broadcast::channel(1);
 
         Self {
@@ -83,6 +87,7 @@ impl Server {
             blocking_registry,
             pubsub_registry,
             aof_writer: None,
+            replication_manager: Some(replication_manager),
             active_connections: Arc::new(AtomicUsize::new(0)),
             shutdown_tx,
         }
@@ -97,6 +102,7 @@ impl Server {
         let executor = Arc::new(CommandExecutor::new());
         let blocking_registry = Arc::new(BlockingRegistry::new());
         let pubsub_registry = Arc::new(PubSubRegistry::new());
+        let replication_manager = Arc::new(ReplicationManager::new());
         let (shutdown_tx, _) = broadcast::channel(1);
 
         Self {
@@ -106,6 +112,7 @@ impl Server {
             blocking_registry,
             pubsub_registry,
             aof_writer: Some(aof_writer),
+            replication_manager: Some(replication_manager),
             active_connections: Arc::new(AtomicUsize::new(0)),
             shutdown_tx,
         }
@@ -168,12 +175,13 @@ impl Server {
                             let blocking_registry = self.blocking_registry.clone();
                             let pubsub_registry = self.pubsub_registry.clone();
                             let aof_writer = self.aof_writer.clone();
+                            let replication_manager = self.replication_manager.clone();
                             let shutdown = Shutdown::new(self.shutdown_tx.subscribe());
                             let active_connections = self.active_connections.clone();
                             let timeout = self.config.timeout;
 
                             tokio::spawn(async move {
-                                handle_connection(stream, executor, store, blocking_registry, pubsub_registry, aof_writer, shutdown, timeout).await;
+                                handle_connection(stream, executor, store, blocking_registry, pubsub_registry, aof_writer, replication_manager, shutdown, timeout).await;
                                 active_connections.fetch_sub(1, Ordering::Relaxed);
                             });
                         }
@@ -240,12 +248,13 @@ impl Server {
                             let blocking_registry = self.blocking_registry.clone();
                             let pubsub_registry = self.pubsub_registry.clone();
                             let aof_writer = self.aof_writer.clone();
+                            let replication_manager = self.replication_manager.clone();
                             let shutdown = Shutdown::new(self.shutdown_tx.subscribe());
                             let active_connections = self.active_connections.clone();
                             let timeout = self.config.timeout;
 
                             tokio::spawn(async move {
-                                handle_connection(stream, executor, store, blocking_registry, pubsub_registry, aof_writer, shutdown, timeout).await;
+                                handle_connection(stream, executor, store, blocking_registry, pubsub_registry, aof_writer, replication_manager, shutdown, timeout).await;
                                 active_connections.fetch_sub(1, Ordering::Relaxed);
                             });
                         }

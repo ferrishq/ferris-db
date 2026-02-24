@@ -65,20 +65,45 @@ pub fn slaveof(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Returns the replication role of the instance (master, slave, or sentinel).
 ///
 /// Time complexity: O(1)
-pub fn role(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+pub fn role(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    use bytes::Bytes;
+
     if !args.is_empty() {
         return Err(CommandError::WrongArity("ROLE".to_string()));
     }
 
-    // TODO: Check actual replication state
-    // For now, always return master role
+    // Check if we have a replication manager
+    if let Some(manager) = ctx.replication_manager() {
+        let info = manager.info();
 
-    // Format: ["master", master_repl_offset, [connected_slaves]]
-    Ok(RespValue::Array(vec![
-        RespValue::BulkString("master".into()),
-        RespValue::Integer(0),    // replication offset
-        RespValue::Array(vec![]), // connected slaves
-    ]))
+        if info.role == "master" {
+            // Master format: ["master", master_repl_offset, [connected_slaves]]
+            Ok(RespValue::Array(vec![
+                RespValue::BulkString(Bytes::from("master")),
+                RespValue::Integer(info.master_repl_offset as i64),
+                RespValue::Array(vec![]), // TODO: List connected replicas
+            ]))
+        } else {
+            // Replica format: ["slave", master_host, master_port, state, repl_offset]
+            let host = info.master_host.unwrap_or_default();
+            let port = info.master_port.unwrap_or(0);
+
+            Ok(RespValue::Array(vec![
+                RespValue::BulkString(Bytes::from("slave")),
+                RespValue::BulkString(Bytes::from(host)),
+                RespValue::Integer(port as i64),
+                RespValue::BulkString(Bytes::from("connected")), // connection state
+                RespValue::Integer(info.master_repl_offset as i64),
+            ]))
+        }
+    } else {
+        // Fallback if no replication manager - return default master role
+        Ok(RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("master")),
+            RespValue::Integer(0),
+            RespValue::Array(vec![]),
+        ]))
+    }
 }
 
 /// WAIT numreplicas timeout

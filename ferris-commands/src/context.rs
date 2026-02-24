@@ -4,6 +4,7 @@ use crate::transaction::TransactionState;
 use ferris_core::{BlockingRegistry, KeyStore, PubSubMessage, PubSubRegistry, SubscriberId};
 use ferris_persistence::AofWriter;
 use ferris_protocol::RespValue;
+use ferris_replication::ReplicationManager;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -27,6 +28,8 @@ pub struct CommandContext {
     pubsub_receiver: mpsc::UnboundedReceiver<PubSubMessage>,
     /// Optional AOF writer for persistence
     aof_writer: Option<Arc<AofWriter>>,
+    /// Optional replication manager
+    replication_manager: Option<Arc<ReplicationManager>>,
     /// Unique client ID assigned when the context is created
     client_id: u64,
     /// Currently selected database index
@@ -54,6 +57,7 @@ impl CommandContext {
             subscriber_id,
             pubsub_receiver,
             aof_writer: None,
+            replication_manager: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -74,6 +78,7 @@ impl CommandContext {
             subscriber_id,
             pubsub_receiver,
             aof_writer: None,
+            replication_manager: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -98,6 +103,7 @@ impl CommandContext {
             subscriber_id,
             pubsub_receiver,
             aof_writer: None,
+            replication_manager: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -114,6 +120,7 @@ impl CommandContext {
         blocking_registry: Arc<BlockingRegistry>,
         pubsub_registry: Arc<PubSubRegistry>,
         aof_writer: Option<Arc<AofWriter>>,
+        replication_manager: Option<Arc<ReplicationManager>>,
     ) -> Self {
         let (subscriber_id, pubsub_receiver) = pubsub_registry.register_subscriber();
         Self {
@@ -123,6 +130,7 @@ impl CommandContext {
             subscriber_id,
             pubsub_receiver,
             aof_writer,
+            replication_manager,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -249,6 +257,39 @@ impl CommandContext {
                 }
             });
         }
+    }
+
+    /// Get a reference to the replication manager
+    #[must_use]
+    pub fn replication_manager(&self) -> Option<&Arc<ReplicationManager>> {
+        self.replication_manager.as_ref()
+    }
+
+    /// Propagate a write command to replication backlog (non-blocking)
+    ///
+    /// This should be called after successfully executing a write command.
+    /// The command will be added to the replication backlog and the offset updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command and its arguments to add to replication stream
+    pub fn propagate_to_replication(&self, command: &[RespValue]) {
+        if let Some(ref manager) = self.replication_manager {
+            manager.append_command(command, self.selected_db);
+        }
+    }
+
+    /// Propagate a write command to both AOF and replication (convenience method)
+    ///
+    /// This should be called after successfully executing a write command.
+    /// The command will be sent to both AOF and replication backlog.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command and its arguments to propagate
+    pub fn propagate(&self, command: &[RespValue]) {
+        self.propagate_to_aof(command.to_vec());
+        self.propagate_to_replication(command);
     }
 }
 

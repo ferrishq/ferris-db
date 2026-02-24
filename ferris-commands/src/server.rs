@@ -165,8 +165,45 @@ pub fn info(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     // Replication section
     if section == "replication" || section == "all" {
         info.push_str("# Replication\r\n");
-        info.push_str("role:master\r\n");
-        info.push_str("connected_slaves:0\r\n");
+
+        // Get replication info from manager if available
+        if let Some(manager) = ctx.replication_manager() {
+            let repl_info = manager.info();
+            info.push_str(&format!("role:{}\r\n", repl_info.role));
+            info.push_str(&format!(
+                "connected_slaves:{}\r\n",
+                repl_info.connected_slaves
+            ));
+            info.push_str(&format!("master_replid:{}\r\n", repl_info.master_replid));
+            info.push_str(&format!("master_replid2:{}\r\n", repl_info.master_replid2));
+            info.push_str(&format!(
+                "master_repl_offset:{}\r\n",
+                repl_info.master_repl_offset
+            ));
+            info.push_str(&format!(
+                "repl_backlog_active:{}\r\n",
+                if repl_info.repl_backlog_active { 1 } else { 0 }
+            ));
+            info.push_str(&format!(
+                "repl_backlog_size:{}\r\n",
+                repl_info.repl_backlog_size
+            ));
+            info.push_str(&format!(
+                "repl_backlog_first_byte_offset:{}\r\n",
+                repl_info.repl_backlog_first_byte_offset
+            ));
+
+            // If this is a replica, show master info
+            if let (Some(host), Some(port)) = (repl_info.master_host, repl_info.master_port) {
+                info.push_str(&format!("master_host:{host}\r\n"));
+                info.push_str(&format!("master_port:{port}\r\n"));
+            }
+        } else {
+            // Fallback if no replication manager
+            info.push_str("role:master\r\n");
+            info.push_str("connected_slaves:0\r\n");
+        }
+
         info.push_str("\r\n");
     }
 

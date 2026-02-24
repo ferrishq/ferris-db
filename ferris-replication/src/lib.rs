@@ -6,9 +6,16 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::module_name_repetitions)]
 
-// Modules to be implemented
+pub mod backlog;
+pub mod manager;
+pub mod state;
+
+// Modules to be implemented later
 // pub mod leader;
 // pub mod follower;
-// pub mod backlog;
 // pub mod consistency;
 // pub mod cluster;
+
+pub use backlog::{BacklogConfig, BacklogEntry, ReplicationBacklog};
+pub use manager::{ReplicationInfo, ReplicationManager};
+pub use state::{MasterInfo, ReplicationRole, ReplicationState};
