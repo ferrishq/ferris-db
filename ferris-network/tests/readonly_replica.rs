@@ -33,7 +33,11 @@ async fn test_replica_rejects_set() {
     let result = client.cmd(&["SET", "key2", "value2"]).await;
     match result {
         RespValue::Error(e) => {
-            assert!(e.contains("READONLY"), "Expected READONLY error, got: {}", e);
+            assert!(
+                e.contains("READONLY"),
+                "Expected READONLY error, got: {}",
+                e
+            );
         }
         _ => panic!("Expected READONLY error, got: {:?}", result),
     }
