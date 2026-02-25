@@ -1036,6 +1036,18 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "XPENDING",
         cmd("XPENDING", -3, read_flags(), crate::stream::xpending),
     );
+    registry.register(
+        "XREADGROUP",
+        cmd("XREADGROUP", -7, write_flags(), crate::stream::xreadgroup),
+    );
+    registry.register(
+        "XCLAIM",
+        cmd("XCLAIM", -6, write_flags(), crate::stream::xclaim),
+    );
+    registry.register(
+        "XAUTOCLAIM",
+        cmd("XAUTOCLAIM", -6, write_flags(), crate::stream::xautoclaim),
+    );
 
     // Scripting commands
     registry.register(

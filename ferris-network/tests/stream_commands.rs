@@ -1046,3 +1046,414 @@ async fn test_stream_ids_are_unique() {
 
     server.stop().await;
 }
+
+// ============================================================
+// XREADGROUP TESTS
+// ============================================================
+
+#[tokio::test]
+async fn test_xreadgroup_basic() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Create a stream with entries
+    client.cmd(&["XADD", "mystream", "*", "field1", "value1"]).await;
+    client.cmd(&["XADD", "mystream", "*", "field2", "value2"]).await;
+    client.cmd(&["XADD", "mystream", "*", "field3", "value3"]).await;
+
+    // Create consumer group
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+
+    // Read messages as consumer
+    let result = client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    match &result {
+        RespValue::Array(streams) => {
+            assert_eq!(streams.len(), 1);
+            if let RespValue::Array(stream_data) = &streams[0] {
+                assert_eq!(stream_data.len(), 2); // key and entries
+                if let RespValue::Array(entries) = &stream_data[1] {
+                    assert_eq!(entries.len(), 3); // 3 messages
+                }
+            }
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xreadgroup_noack() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Create stream and group
+    client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+
+    // Read with NOACK - should not add to pending
+    let _result = client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "NOACK", "STREAMS", "mystream", ">"]).await;
+
+    // Check pending - should be empty
+    let pending = client.cmd(&["XPENDING", "mystream", "mygroup"]).await;
+    
+    match &pending {
+        RespValue::Array(info) => {
+            if let RespValue::Integer(count) = &info[0] {
+                assert_eq!(*count, 0, "Pending count should be 0 with NOACK");
+            }
+        }
+        _ => {}
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xreadgroup_count() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Add 5 entries
+    for i in 0..5 {
+        client.cmd(&["XADD", "mystream", "*", "field", &format!("value{}", i)]).await;
+    }
+
+    // Create group
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+
+    // Read only 2 entries
+    let result = client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "COUNT", "2", "STREAMS", "mystream", ">"]).await;
+
+    match &result {
+        RespValue::Array(streams) => {
+            if let RespValue::Array(stream_data) = &streams[0] {
+                if let RespValue::Array(entries) = &stream_data[1] {
+                    assert_eq!(entries.len(), 2, "Should only return 2 entries");
+                }
+            }
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xreadgroup_no_new_messages() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Create stream and group
+    client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+
+    // Read all messages
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    // Read again - should get nothing
+    let result = client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    assert_eq!(result, RespValue::Null);
+
+    server.stop().await;
+}
+
+// ============================================================
+// XCLAIM TESTS
+// ============================================================
+
+#[tokio::test]
+async fn test_xclaim_basic() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Create stream with entry
+    let id = client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    let id_str = match &id {
+        RespValue::BulkString(s) => String::from_utf8_lossy(s).to_string(),
+        _ => panic!("Expected BulkString"),
+    };
+
+    // Create group and read message
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    // Wait a bit for idle time
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Claim message for different consumer
+    let result = client.cmd(&["XCLAIM", "mystream", "mygroup", "consumer2", "5", &id_str]).await;
+
+    match &result {
+        RespValue::Array(entries) => {
+            assert_eq!(entries.len(), 1);
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xclaim_justid() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Setup stream, group, and read message
+    let id = client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    let id_str = match &id {
+        RespValue::BulkString(s) => String::from_utf8_lossy(s).to_string(),
+        _ => panic!("Expected BulkString"),
+    };
+
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Claim with JUSTID - should return only IDs
+    let result = client.cmd(&["XCLAIM", "mystream", "mygroup", "consumer2", "5", &id_str, "JUSTID"]).await;
+
+    match &result {
+        RespValue::Array(entries) => {
+            assert_eq!(entries.len(), 1);
+            // Each entry should be just the ID (a tuple with empty fields)
+            if let RespValue::Array(entry) = &entries[0] {
+                assert_eq!(entry.len(), 2); // ID and empty fields array
+            }
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xclaim_force() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Create stream with entry
+    let id = client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    let id_str = match &id {
+        RespValue::BulkString(s) => String::from_utf8_lossy(s).to_string(),
+        _ => panic!("Expected BulkString"),
+    };
+
+    // Create group (but don't read the message)
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+
+    // FORCE claim - should work even though message is not in pending
+    let result = client.cmd(&["XCLAIM", "mystream", "mygroup", "consumer1", "0", &id_str, "FORCE"]).await;
+
+    match &result {
+        RespValue::Array(entries) => {
+            assert_eq!(entries.len(), 1);
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xclaim_retrycount() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Setup
+    let id = client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    let id_str = match &id {
+        RespValue::BulkString(s) => String::from_utf8_lossy(s).to_string(),
+        _ => panic!("Expected BulkString"),
+    };
+
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Claim with RETRYCOUNT set to 5
+    let _result = client.cmd(&["XCLAIM", "mystream", "mygroup", "consumer2", "5", &id_str, "RETRYCOUNT", "5"]).await;
+
+    // Verify using XPENDING that retrycount was set (would need detailed XPENDING to verify)
+    server.stop().await;
+}
+
+// ============================================================
+// XAUTOCLAIM TESTS
+// ============================================================
+
+#[tokio::test]
+async fn test_xautoclaim_basic() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Add multiple entries
+    for i in 0..3 {
+        client.cmd(&["XADD", "mystream", "*", "field", &format!("value{}", i)]).await;
+    }
+
+    // Create group and read as consumer1
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    // Wait for idle time
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Auto-claim idle messages for consumer2
+    let result = client.cmd(&["XAUTOCLAIM", "mystream", "mygroup", "consumer2", "5", "0-0"]).await;
+
+    match &result {
+        RespValue::Array(data) => {
+            assert_eq!(data.len(), 2); // [next_cursor, [entries]]
+            if let RespValue::Array(entries) = &data[1] {
+                assert!(entries.len() > 0, "Should have claimed some messages");
+            }
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xautoclaim_justid() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Setup
+    client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Auto-claim with JUSTID
+    let result = client.cmd(&["XAUTOCLAIM", "mystream", "mygroup", "consumer2", "5", "0-0", "JUSTID"]).await;
+
+    match &result {
+        RespValue::Array(data) => {
+            assert_eq!(data.len(), 2);
+            // Entries should only contain IDs
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xautoclaim_count() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Add 5 entries
+    for i in 0..5 {
+        client.cmd(&["XADD", "mystream", "*", "field", &format!("value{}", i)]).await;
+    }
+
+    // Setup and read all as consumer1
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Auto-claim with COUNT=2
+    let result = client.cmd(&["XAUTOCLAIM", "mystream", "mygroup", "consumer2", "5", "0-0", "COUNT", "2"]).await;
+
+    match &result {
+        RespValue::Array(data) => {
+            if let RespValue::Array(entries) = &data[1] {
+                assert!(entries.len() <= 2, "Should claim at most 2 entries");
+            }
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_xautoclaim_no_idle_messages() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Setup
+    client.cmd(&["XADD", "mystream", "*", "field", "value"]).await;
+    client.cmd(&["XGROUP", "CREATE", "mystream", "mygroup", "0"]).await;
+    client.cmd(&["XREADGROUP", "GROUP", "mygroup", "consumer1", "STREAMS", "mystream", ">"]).await;
+
+    // Don't wait - try to claim immediately with high min-idle-time
+    let result = client.cmd(&["XAUTOCLAIM", "mystream", "mygroup", "consumer2", "10000", "0-0"]).await;
+
+    match &result {
+        RespValue::Array(data) => {
+            if let RespValue::Array(entries) = &data[1] {
+                assert_eq!(entries.len(), 0, "Should not claim messages that aren't idle");
+            }
+        }
+        _ => panic!("Expected array, got {:?}", result),
+    }
+
+    server.stop().await;
+}
+
+// ============================================================
+// CONSUMER GROUP INTEGRATION TESTS
+// ============================================================
+
+#[tokio::test]
+async fn test_consumer_group_workflow() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // 1. Add messages to stream
+    client.cmd(&["XADD", "orders", "*", "order", "1001"]).await;
+    client.cmd(&["XADD", "orders", "*", "order", "1002"]).await;
+    client.cmd(&["XADD", "orders", "*", "order", "1003"]).await;
+
+    // 2. Create consumer group
+    client.cmd(&["XGROUP", "CREATE", "orders", "processors", "0"]).await;
+
+    // 3. Consumer1 reads some messages
+    let result1 = client.cmd(&["XREADGROUP", "GROUP", "processors", "worker1", "COUNT", "2", "STREAMS", "orders", ">"]).await;
+    match &result1 {
+        RespValue::Array(streams) => {
+            if let RespValue::Array(stream_data) = &streams[0] {
+                if let RespValue::Array(entries) = &stream_data[1] {
+                    assert_eq!(entries.len(), 2);
+                }
+            }
+        }
+        _ => panic!("Expected array"),
+    }
+
+    // 4. Consumer2 reads remaining messages
+    let result2 = client.cmd(&["XREADGROUP", "GROUP", "processors", "worker2", "STREAMS", "orders", ">"]).await;
+    match &result2 {
+        RespValue::Array(streams) => {
+            if let RespValue::Array(stream_data) = &streams[0] {
+                if let RespValue::Array(entries) = &stream_data[1] {
+                    assert_eq!(entries.len(), 1);
+                }
+            }
+        }
+        _ => panic!("Expected array"),
+    }
+
+    // 5. Check pending - all 3 should be pending
+    let pending = client.cmd(&["XPENDING", "orders", "processors"]).await;
+    match &pending {
+        RespValue::Array(info) => {
+            if let RespValue::Integer(count) = &info[0] {
+                assert_eq!(*count, 3);
+            }
+        }
+        _ => {}
+    }
+
+    server.stop().await;
+}

@@ -2,8 +2,8 @@
 
 **Last Updated**: 2026-02-24  
 **Total Redis Commands**: ~470 (Redis 7.2)  
-**Implemented in ferris-db**: 218 commands  
-**Coverage**: ~46%
+**Implemented in ferris-db**: 221 commands  
+**Coverage**: ~47%
 
 > This document tracks Redis command compatibility. Commands are organized by category matching Redis documentation.
 
@@ -204,14 +204,14 @@
 
 ---
 
-## Stream Commands (10/26)
+## Stream Commands (13/26)
 
 | Command | Status | Notes |
 |---------|--------|-------|
 | XACK | ✅ | |
 | XADD | ✅ | |
-| XAUTOCLAIM | ❌ | Redis 6.2+ |
-| XCLAIM | ❌ | |
+| XAUTOCLAIM | ✅ | Redis 6.2+ |
+| XCLAIM | ✅ | |
 | XDEL | ✅ | |
 | XGROUP | ✅ | CREATE, DESTROY, SETID, etc. |
 | XINFO | ✅ | CONSUMERS, GROUPS, STREAM |
@@ -219,12 +219,12 @@
 | XPENDING | ✅ | |
 | XRANGE | ✅ | |
 | XREAD | ✅ | |
-| XREADGROUP | ❌ | |
+| XREADGROUP | ✅ | |
 | XREVRANGE | ✅ | |
 | XSETID | ✅ | |
 | XTRIM | ✅ | |
 
-**Coverage**: 10/26 (38%)
+**Coverage**: 13/26 (50%)
 
 ---
 

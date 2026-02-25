@@ -1224,6 +1224,666 @@ pub fn xpending(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 }
 
+// ---------------------------------------------------------------------------
+// XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] id [id ...]
+// ---------------------------------------------------------------------------
+
+/// XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] id [id ...]
+///
+/// Read data from a stream via a consumer group.
+///
+/// Time complexity: O(N) with N being the number of elements returned.
+#[allow(clippy::too_many_lines)]
+pub fn xreadgroup(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    use std::time::Instant;
+
+    if args.len() < 6 {
+        return Err(CommandError::WrongArity("XREADGROUP".to_string()));
+    }
+
+    // Parse GROUP group consumer
+    if get_str(&args[0])?.to_uppercase() != "GROUP" {
+        return Err(CommandError::SyntaxError);
+    }
+
+    let group_name = get_bytes(&args[1])?;
+    let consumer_name = get_bytes(&args[2])?;
+
+    let mut idx = 3;
+    let mut count: Option<usize> = None;
+    #[allow(clippy::collection_is_never_read)]
+    let mut _block: Option<u64> = None; // TODO: implement blocking
+    let mut noack = false;
+
+    // Parse options
+    while idx < args.len() {
+        let opt = get_str(&args[idx])?.to_uppercase();
+        match opt.as_str() {
+            "COUNT" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                count = Some(parse_usize(&args[idx])?);
+                idx += 1;
+            }
+            "BLOCK" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                _block = Some(parse_int(&args[idx])? as u64);
+                idx += 1;
+            }
+            "NOACK" => {
+                noack = true;
+                idx += 1;
+            }
+            "STREAMS" => {
+                idx += 1;
+                break;
+            }
+            _ => return Err(CommandError::SyntaxError),
+        }
+    }
+
+    if idx >= args.len() {
+        return Err(CommandError::SyntaxError);
+    }
+
+    // Parse STREAMS keys and IDs
+    let remaining = args.len() - idx;
+    if remaining % 2 != 0 {
+        return Err(CommandError::SyntaxError);
+    }
+
+    let num_streams = remaining / 2;
+    let keys = &args[idx..idx + num_streams];
+    let ids = &args[idx + num_streams..];
+
+    let db = ctx.store().database(ctx.selected_db());
+    let mut results = Vec::new();
+
+    for i in 0..num_streams {
+        let key = get_bytes(&keys[i])?;
+        let id_str = get_str(&ids[i])?;
+
+        // Special ID ">" means "never delivered to this consumer group"
+        let start_id = if id_str == ">" {
+            None // Will use last_delivered_id
+        } else {
+            Some(StreamId::parse(id_str).ok_or_else(|| {
+                CommandError::InvalidArgument(format!("Invalid stream ID: {}", id_str))
+            })?)
+        };
+
+        #[allow(clippy::single_match)]
+        match db.get(&key) {
+            Some(entry) => match &entry.value {
+                RedisValue::Stream(stream) => {
+                    // Get or create consumer group
+                    if !stream.groups.contains_key(&group_name) {
+                        return Err(CommandError::InvalidArgument(format!(
+                            "NOGROUP No such consumer group '{}' for key '{}'",
+                            String::from_utf8_lossy(&group_name),
+                            String::from_utf8_lossy(&key)
+                        )));
+                    }
+
+                    let mut stream = stream.clone();
+                    let group = stream.groups.get_mut(&group_name).unwrap(); // Safe: we just checked existence above
+
+                    // Ensure consumer exists
+                    if !group.consumers.contains_key(&consumer_name) {
+                        use ferris_core::Consumer;
+                        group.consumers.insert(
+                            consumer_name.clone(),
+                            Consumer {
+                                name: consumer_name.clone(),
+                                pending_count: 0,
+                                last_seen: Instant::now(),
+                            },
+                        );
+                    }
+
+                    // Update consumer last seen
+                    if let Some(consumer) = group.consumers.get_mut(&consumer_name) {
+                        consumer.last_seen = Instant::now();
+                    }
+
+                    // Determine starting point
+                    let actual_start = start_id.unwrap_or_else(|| group.last_delivered_id.clone());
+
+                    // Get entries after start_id
+                    let entries: Vec<_> = stream
+                        .entries
+                        .range((
+                            std::ops::Bound::Excluded(actual_start),
+                            std::ops::Bound::Unbounded,
+                        ))
+                        .take(count.unwrap_or(usize::MAX))
+                        .map(|(id, fields)| {
+                            let fields_vec: Vec<(Bytes, Bytes)> = fields.clone();
+                            (id.clone(), fields_vec)
+                        })
+                        .collect();
+
+                    if !entries.is_empty() {
+                        // Add to pending list (unless NOACK)
+                        if !noack {
+                            use ferris_core::PendingEntry;
+                            for (id, _) in &entries {
+                                group.pending.insert(
+                                    id.clone(),
+                                    PendingEntry {
+                                        consumer: consumer_name.clone(),
+                                        delivery_time: Instant::now(),
+                                        delivery_count: 1,
+                                    },
+                                );
+                                if let Some(consumer) = group.consumers.get_mut(&consumer_name) {
+                                    consumer.pending_count += 1;
+                                }
+                            }
+                        }
+
+                        // Update last_delivered_id
+                        if let Some((last_id, _)) = entries.last() {
+                            group.last_delivered_id = last_id.clone();
+                        }
+
+                        // Save back to database
+                        db.set(
+                            key.clone(),
+                            Entry {
+                                value: RedisValue::Stream(stream),
+                                expires_at: entry.expires_at,
+                                version: entry.version + 1,
+                                last_access: Instant::now(),
+                                lfu_counter: entry.lfu_counter,
+                            },
+                        );
+
+                        // Format response
+                        let stream_entries: Vec<RespValue> = entries
+                            .into_iter()
+                            .map(|(id, fields)| {
+                                let fields_resp: Vec<RespValue> = fields
+                                    .into_iter()
+                                    .flat_map(|(k, v)| {
+                                        vec![RespValue::BulkString(k), RespValue::BulkString(v)]
+                                    })
+                                    .collect();
+
+                                RespValue::Array(vec![
+                                    RespValue::BulkString(Bytes::from(id.to_string())),
+                                    RespValue::Array(fields_resp),
+                                ])
+                            })
+                            .collect();
+
+                        results.push(RespValue::Array(vec![
+                            RespValue::BulkString(key),
+                            RespValue::Array(stream_entries),
+                        ]));
+                    }
+                }
+                _ => return Err(CommandError::WrongType),
+            },
+            None => {} // Key doesn't exist, skip
+        }
+    }
+
+    if results.is_empty() {
+        Ok(RespValue::Null)
+    } else {
+        Ok(RespValue::Array(results))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// XCLAIM key group consumer min-idle-time id [id ...] [IDLE ms] [TIME unix-ms] [RETRYCOUNT count] [FORCE] [JUSTID]
+// ---------------------------------------------------------------------------
+
+/// XCLAIM key group consumer min-idle-time id [id ...] [IDLE ms] [TIME unix-ms] [RETRYCOUNT count] [FORCE] [JUSTID]
+///
+/// Changes (or acquires) ownership of messages in a consumer group.
+///
+/// Time complexity: O(log N) with N being the number of messages in the pending entries list.
+#[allow(clippy::too_many_lines)]
+pub fn xclaim(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    use std::time::{Duration, Instant};
+
+    if args.len() < 5 {
+        return Err(CommandError::WrongArity("XCLAIM".to_string()));
+    }
+
+    let key = get_bytes(&args[0])?;
+    let group_name = get_bytes(&args[1])?;
+    let consumer_name = get_bytes(&args[2])?;
+    let min_idle_ms = parse_int(&args[3])?;
+
+    let mut idx = 4;
+    let mut ids = Vec::new();
+
+    // Parse IDs
+    while idx < args.len() {
+        let arg_str = get_str(&args[idx])?;
+        if arg_str
+            .to_uppercase()
+            .chars()
+            .all(|c| c.is_ascii_alphabetic())
+        {
+            // This is an option
+            break;
+        }
+        let id = StreamId::parse(arg_str).ok_or_else(|| {
+            CommandError::InvalidArgument(format!("Invalid stream ID: {}", arg_str))
+        })?;
+        ids.push(id);
+        idx += 1;
+    }
+
+    if ids.is_empty() {
+        return Err(CommandError::SyntaxError);
+    }
+
+    // Parse options
+    let mut idle: Option<u64> = None;
+    let mut time: Option<u64> = None;
+    let mut retry_count: Option<u64> = None;
+    let mut force = false;
+    let mut justid = false;
+
+    while idx < args.len() {
+        let opt = get_str(&args[idx])?.to_uppercase();
+        match opt.as_str() {
+            "IDLE" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                idle = Some(parse_int(&args[idx])? as u64);
+                idx += 1;
+            }
+            "TIME" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                time = Some(parse_int(&args[idx])? as u64);
+                idx += 1;
+            }
+            "RETRYCOUNT" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                retry_count = Some(parse_int(&args[idx])? as u64);
+                idx += 1;
+            }
+            "FORCE" => {
+                force = true;
+                idx += 1;
+            }
+            "JUSTID" => {
+                justid = true;
+                idx += 1;
+            }
+            _ => return Err(CommandError::SyntaxError),
+        }
+    }
+
+    let db = ctx.store().database(ctx.selected_db());
+
+    match db.get(&key) {
+        Some(entry) => match &entry.value {
+            RedisValue::Stream(stream) => {
+                let mut stream = stream.clone();
+
+                // Check if group exists
+                if !stream.groups.contains_key(&group_name) {
+                    return Err(CommandError::InvalidArgument(format!(
+                        "NOGROUP No such consumer group '{}'",
+                        String::from_utf8_lossy(&group_name)
+                    )));
+                }
+
+                let group = stream.groups.get_mut(&group_name).unwrap(); // Safe: we just checked existence above
+
+                // Ensure consumer exists
+                if !group.consumers.contains_key(&consumer_name) {
+                    use ferris_core::Consumer;
+                    group.consumers.insert(
+                        consumer_name.clone(),
+                        Consumer {
+                            name: consumer_name.clone(),
+                            pending_count: 0,
+                            last_seen: Instant::now(),
+                        },
+                    );
+                }
+
+                let mut claimed = Vec::new();
+
+                for id in ids {
+                    // Check if entry exists in pending
+                    if let Some(pending) = group.pending.get_mut(&id) {
+                        // Check if idle time is sufficient
+                        let elapsed = pending.delivery_time.elapsed().as_millis() as i64;
+                        if elapsed < min_idle_ms && !force {
+                            continue;
+                        }
+
+                        // Decrement old consumer's pending count
+                        if let Some(old_consumer) = group.consumers.get_mut(&pending.consumer) {
+                            old_consumer.pending_count =
+                                old_consumer.pending_count.saturating_sub(1);
+                        }
+
+                        // Update pending entry
+                        pending.consumer = consumer_name.clone();
+                        if let Some(idle_ms) = idle {
+                            pending.delivery_time = Instant::now()
+                                .checked_sub(Duration::from_millis(idle_ms))
+                                .unwrap_or_else(Instant::now);
+                        } else if let Some(time_ms) = time {
+                            // Convert Unix timestamp to Instant (approximate)
+                            let now = Instant::now();
+                            let current_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
+                            if time_ms < current_ms {
+                                pending.delivery_time = now
+                                    .checked_sub(Duration::from_millis(current_ms - time_ms))
+                                    .unwrap_or(now);
+                            }
+                        } else {
+                            pending.delivery_time = Instant::now();
+                        }
+
+                        if let Some(count) = retry_count {
+                            pending.delivery_count = count;
+                        } else {
+                            pending.delivery_count += 1;
+                        }
+
+                        // Increment new consumer's pending count
+                        if let Some(new_consumer) = group.consumers.get_mut(&consumer_name) {
+                            new_consumer.pending_count += 1;
+                            new_consumer.last_seen = Instant::now();
+                        }
+
+                        // Get entry data if needed
+                        if !justid {
+                            if let Some(fields) = stream.entries.get(&id) {
+                                claimed.push((id, fields.clone()));
+                            }
+                        } else {
+                            claimed.push((id, vec![]));
+                        }
+                    } else if force {
+                        // FORCE: Claim even if not in pending
+                        use ferris_core::PendingEntry;
+                        group.pending.insert(
+                            id.clone(),
+                            PendingEntry {
+                                consumer: consumer_name.clone(),
+                                delivery_time: idle
+                                    .and_then(|ms| {
+                                        Instant::now().checked_sub(Duration::from_millis(ms))
+                                    })
+                                    .unwrap_or_else(Instant::now),
+                                delivery_count: retry_count.unwrap_or(1),
+                            },
+                        );
+
+                        if let Some(consumer) = group.consumers.get_mut(&consumer_name) {
+                            consumer.pending_count += 1;
+                        }
+
+                        if !justid {
+                            if let Some(fields) = stream.entries.get(&id) {
+                                claimed.push((id, fields.clone()));
+                            }
+                        } else {
+                            claimed.push((id, vec![]));
+                        }
+                    }
+                }
+
+                // Save back to database
+                db.set(
+                    key,
+                    Entry {
+                        value: RedisValue::Stream(stream),
+                        expires_at: entry.expires_at,
+                        version: entry.version + 1,
+                        last_access: Instant::now(),
+                        lfu_counter: entry.lfu_counter,
+                    },
+                );
+
+                // Format response
+                let result: Vec<RespValue> = claimed
+                    .into_iter()
+                    .map(|(id, fields)| {
+                        if justid {
+                            RespValue::BulkString(Bytes::from(id.to_string()))
+                        } else {
+                            let fields_resp: Vec<RespValue> = fields
+                                .into_iter()
+                                .flat_map(|(k, v)| {
+                                    vec![RespValue::BulkString(k), RespValue::BulkString(v)]
+                                })
+                                .collect();
+
+                            RespValue::Array(vec![
+                                RespValue::BulkString(Bytes::from(id.to_string())),
+                                RespValue::Array(fields_resp),
+                            ])
+                        }
+                    })
+                    .collect();
+
+                Ok(RespValue::Array(result))
+            }
+            _ => Err(CommandError::WrongType),
+        },
+        None => Err(CommandError::NoSuchKey),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]
+// ---------------------------------------------------------------------------
+
+/// XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]
+///
+/// Automatically claims idle messages from a consumer group (Redis 6.2+).
+///
+/// Time complexity: O(1) if COUNT is small, O(N) with N being the number of messages claimed.
+pub fn xautoclaim(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    use std::time::Instant;
+
+    if args.len() < 5 {
+        return Err(CommandError::WrongArity("XAUTOCLAIM".to_string()));
+    }
+
+    let key = get_bytes(&args[0])?;
+    let group_name = get_bytes(&args[1])?;
+    let consumer_name = get_bytes(&args[2])?;
+    let min_idle_ms = parse_int(&args[3])?;
+    let start_id = get_str(&args[4])?;
+
+    let mut idx = 5;
+    let mut count: Option<usize> = None;
+    let mut justid = false;
+
+    // Parse options
+    while idx < args.len() {
+        let opt = get_str(&args[idx])?.to_uppercase();
+        match opt.as_str() {
+            "COUNT" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                count = Some(parse_usize(&args[idx])?);
+                idx += 1;
+            }
+            "JUSTID" => {
+                justid = true;
+                idx += 1;
+            }
+            _ => return Err(CommandError::SyntaxError),
+        }
+    }
+
+    let start = if start_id == "0-0" {
+        StreamId::new(0, 0)
+    } else {
+        StreamId::parse(start_id).ok_or_else(|| {
+            CommandError::InvalidArgument(format!("Invalid stream ID: {}", start_id))
+        })?
+    };
+
+    let db = ctx.store().database(ctx.selected_db());
+
+    match db.get(&key) {
+        Some(entry) => match &entry.value {
+            RedisValue::Stream(stream) => {
+                let mut stream = stream.clone();
+
+                // Check if group exists
+                if !stream.groups.contains_key(&group_name) {
+                    return Err(CommandError::InvalidArgument(format!(
+                        "NOGROUP No such consumer group '{}'",
+                        String::from_utf8_lossy(&group_name)
+                    )));
+                }
+
+                let group = stream.groups.get_mut(&group_name).unwrap(); // Safe: we just checked existence above
+
+                // Ensure consumer exists
+                if !group.consumers.contains_key(&consumer_name) {
+                    use ferris_core::Consumer;
+                    group.consumers.insert(
+                        consumer_name.clone(),
+                        Consumer {
+                            name: consumer_name.clone(),
+                            pending_count: 0,
+                            last_seen: Instant::now(),
+                        },
+                    );
+                }
+
+                let mut claimed = Vec::new();
+                let mut next_id = start.clone();
+                let max_count = count.unwrap_or(100); // Default to 100 like Redis
+                let start_clone = start.clone();
+
+                // Iterate through pending entries starting from start_id
+                for (id, pending) in group
+                    .pending
+                    .iter_mut()
+                    .filter(move |(id, _)| **id >= start_clone)
+                    .take(max_count * 2)
+                {
+                    // Check if idle time is sufficient
+                    let elapsed = pending.delivery_time.elapsed().as_millis() as i64;
+                    if elapsed >= min_idle_ms {
+                        // Decrement old consumer's pending count
+                        if let Some(old_consumer) = group.consumers.get_mut(&pending.consumer) {
+                            old_consumer.pending_count =
+                                old_consumer.pending_count.saturating_sub(1);
+                        }
+
+                        // Claim for new consumer
+                        pending.consumer = consumer_name.clone();
+                        pending.delivery_time = Instant::now();
+                        pending.delivery_count += 1;
+
+                        // Increment new consumer's pending count
+                        if let Some(new_consumer) = group.consumers.get_mut(&consumer_name) {
+                            new_consumer.pending_count += 1;
+                            new_consumer.last_seen = Instant::now();
+                        }
+
+                        // Add to claimed list
+                        if !justid {
+                            if let Some(fields) = stream.entries.get(id) {
+                                claimed.push((id.clone(), fields.clone()));
+                            }
+                        } else {
+                            claimed.push((id.clone(), vec![]));
+                        }
+
+                        next_id = id.clone();
+
+                        if claimed.len() >= max_count {
+                            break;
+                        }
+                    }
+
+                    next_id = id.clone();
+                }
+
+                // Calculate next start cursor
+                let next_cursor = if claimed.len() >= max_count {
+                    // More entries might be available
+                    Bytes::from(next_id.to_string())
+                } else {
+                    // No more entries
+                    Bytes::from("0-0")
+                };
+
+                // Save back to database
+                db.set(
+                    key,
+                    Entry {
+                        value: RedisValue::Stream(stream),
+                        expires_at: entry.expires_at,
+                        version: entry.version + 1,
+                        last_access: Instant::now(),
+                        lfu_counter: entry.lfu_counter,
+                    },
+                );
+
+                // Format response: [next_id, [claimed entries]]
+                let entries_resp: Vec<RespValue> = claimed
+                    .into_iter()
+                    .map(|(id, fields)| {
+                        if justid {
+                            RespValue::BulkString(Bytes::from(id.to_string()))
+                        } else {
+                            let fields_resp: Vec<RespValue> = fields
+                                .into_iter()
+                                .flat_map(|(k, v)| {
+                                    vec![RespValue::BulkString(k), RespValue::BulkString(v)]
+                                })
+                                .collect();
+
+                            RespValue::Array(vec![
+                                RespValue::BulkString(Bytes::from(id.to_string())),
+                                RespValue::Array(fields_resp),
+                            ])
+                        }
+                    })
+                    .collect();
+
+                Ok(RespValue::Array(vec![
+                    RespValue::BulkString(next_cursor),
+                    RespValue::Array(entries_resp),
+                ]))
+            }
+            _ => Err(CommandError::WrongType),
+        },
+        None => Err(CommandError::NoSuchKey),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
