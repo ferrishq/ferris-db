@@ -435,9 +435,9 @@ pub fn zadd(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     write_zset(ctx, key.clone(), scores, members);
 
-    // Propagate to AOF
+    // Propagate to AOF and replication
     if added > 0 || changed > 0 {
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        ctx.propagate_args(args);
     }
 
     // Notify any blocking waiters (BZPOPMIN, BZPOPMAX, etc.)
@@ -490,8 +490,8 @@ pub fn zrem(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     write_zset(ctx, key.clone(), scores, members);
 
     if removed > 0 {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(removed))
@@ -1110,8 +1110,8 @@ pub fn zincrby(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     write_zset(ctx, key.clone(), scores, members);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::BulkString(Bytes::from(format_score(new_score))))
 }
@@ -1166,8 +1166,8 @@ pub fn zpopmin(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     write_zset(ctx, key.clone(), scores, members);
 
     if !result.is_empty() {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Array(result))
@@ -1223,8 +1223,8 @@ pub fn zpopmax(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     write_zset(ctx, key.clone(), scores, members);
 
     if !result.is_empty() {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Array(result))
@@ -1374,8 +1374,8 @@ pub fn zrangestore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
     }
     write_zset(ctx, dst_key.clone(), dst_scores, dst_members);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(count))
 }
@@ -1436,8 +1436,8 @@ pub fn zunionstore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
     let count = dst_scores.len() as i64;
     write_zset(ctx, dst.clone(), dst_scores, dst_members);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(count))
 }
@@ -1508,8 +1508,8 @@ pub fn zinterstore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
     let count = dst_scores.len() as i64;
     write_zset(ctx, dst.clone(), dst_scores, dst_members);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(count))
 }

@@ -24,8 +24,12 @@ impl CommandExecutor {
             .get(&cmd.name)
             .ok_or_else(|| CommandError::UnknownCommand(cmd.name.clone()))?;
 
+        // Set the current command name for propagation
+        ctx.set_current_command(cmd.name.clone());
+
         // Check if this is a write command on a read-only replica
-        if spec.flags.write && ctx.is_replica() {
+        // Allow writes if we're applying replicated commands from the leader
+        if spec.flags.write && ctx.is_replica() && !ctx.is_applying_replication() {
             return Err(CommandError::ReadOnly);
         }
 

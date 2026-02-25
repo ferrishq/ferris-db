@@ -205,8 +205,8 @@ pub fn set(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     db.set(key.clone(), entry);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     if get_old {
         match old_value {
@@ -241,8 +241,8 @@ pub fn setnx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     db.set(key.clone(), Entry::new(RedisValue::String(value.clone())));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("SETNX")),
         RespValue::BulkString(key),
         RespValue::BulkString(value),
@@ -276,8 +276,8 @@ pub fn setex(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     entry.set_ttl(Duration::from_secs(seconds as u64));
     db.set(key.clone(), entry);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("SETEX")),
         RespValue::BulkString(key),
         args[1].clone(),
@@ -312,8 +312,8 @@ pub fn psetex(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     entry.set_ttl(Duration::from_millis(ms as u64));
     db.set(key.clone(), entry);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("PSETEX")),
         RespValue::BulkString(key),
         args[1].clone(),
@@ -375,8 +375,8 @@ pub fn mset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         db.set(key, Entry::new(RedisValue::String(value)));
     }
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::ok())
 }
@@ -410,8 +410,8 @@ pub fn msetnx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         db.set(key, Entry::new(RedisValue::String(value)));
     }
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(1))
 }
@@ -442,11 +442,11 @@ fn incrby_impl(
     ctx: &mut CommandContext,
     args: &[RespValue],
     increment: i64,
-    cmd: &str,
+    cmd_name: &str,
 ) -> CommandResult {
     let key = get_bytes(
         args.first()
-            .ok_or_else(|| CommandError::WrongArity(cmd.to_string()))?,
+            .ok_or_else(|| CommandError::WrongArity(cmd_name.to_string()))?,
     )?;
 
     let db = ctx.store().database(ctx.selected_db());
@@ -480,8 +480,8 @@ fn incrby_impl(
         Entry::new(RedisValue::String(Bytes::from(new_value.to_string()))),
     );
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_with_name(cmd_name, args);
 
     Ok(RespValue::Integer(new_value))
 }
@@ -535,8 +535,8 @@ pub fn incrbyfloat(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
         Entry::new(RedisValue::String(Bytes::from(formatted.clone()))),
     );
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("INCRBYFLOAT")),
         RespValue::BulkString(key),
         args[1].clone(),
@@ -604,8 +604,8 @@ pub fn append(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let len = new_value.len();
     db.set(key.clone(), Entry::new(RedisValue::String(new_value)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("APPEND")),
         RespValue::BulkString(key),
         args[1].clone(),
@@ -761,8 +761,8 @@ pub fn setrange(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         Entry::new(RedisValue::String(Bytes::from(new_value))),
     );
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("SETRANGE")),
         RespValue::BulkString(key),
         args[1].clone(),
@@ -803,8 +803,8 @@ pub fn getset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     db.set(key.clone(), Entry::new(RedisValue::String(value.clone())));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("GETSET")),
         RespValue::BulkString(key),
         RespValue::BulkString(value),
@@ -841,7 +841,7 @@ pub fn getdel(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                     db.delete(&key);
 
                     // Propagate to AOF (as DEL command)
-                    ctx.propagate_to_aof(vec![
+                    ctx.propagate(&[
                         RespValue::BulkString(Bytes::from("DEL")),
                         RespValue::BulkString(key),
                     ]);
@@ -944,8 +944,8 @@ pub fn getex(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
         db.set(key.clone(), new_entry);
 
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::BulkString(value))
@@ -6354,8 +6354,8 @@ pub fn setbit(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         Entry::new(RedisValue::String(Bytes::from(bytes_vec))),
     );
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(vec![
+    // Propagate to AOF and replication
+    ctx.propagate(&[
         RespValue::BulkString(Bytes::from("SETBIT")),
         RespValue::BulkString(key),
         args[1].clone(),
@@ -6862,8 +6862,8 @@ pub fn bitop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 Entry::new(RedisValue::String(Bytes::from(result))),
             );
 
-            // Propagate to AOF
-            ctx.propagate_to_aof(args.iter().cloned().collect());
+            // Propagate to AOF and replication
+            ctx.propagate_args(args);
 
             Ok(RespValue::Integer(result_len as i64))
         }
@@ -6895,8 +6895,8 @@ pub fn bitop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 Entry::new(RedisValue::String(Bytes::from(result))),
             );
 
-            // Propagate to AOF
-            ctx.propagate_to_aof(args.iter().cloned().collect());
+            // Propagate to AOF and replication
+            ctx.propagate_args(args);
 
             Ok(RespValue::Integer(result_len as i64))
         }
@@ -7026,8 +7026,8 @@ pub fn bitfield(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         entry.increment_version();
         db.set(key.clone(), entry);
 
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Array(results))

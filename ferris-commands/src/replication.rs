@@ -126,6 +126,9 @@ pub fn replicaof(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
                     replication_manager,
                 );
 
+                // Mark this context as applying replication so writes are allowed
+                ctx.set_applying_replication(true);
+
                 while let Some(repl_cmd) = rx.recv().await {
                     match repl_cmd {
                         ferris_replication::ReplicationCommand::Command(parts) => {

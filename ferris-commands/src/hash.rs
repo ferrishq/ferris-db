@@ -125,8 +125,8 @@ pub fn hset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(new_fields))
 }
@@ -156,8 +156,8 @@ pub fn hsetnx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(1))
 }
@@ -196,8 +196,8 @@ pub fn hdel(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     if removed > 0 {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(removed))
@@ -282,8 +282,8 @@ pub fn hmset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::ok())
 }
@@ -352,8 +352,8 @@ pub fn hincrby(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(new_value))
 }
@@ -400,8 +400,8 @@ pub fn hincrbyfloat(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResu
     let db = ctx.store().database(ctx.selected_db());
     db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::BulkString(Bytes::from(formatted)))
 }

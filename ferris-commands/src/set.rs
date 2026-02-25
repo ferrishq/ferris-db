@@ -98,8 +98,8 @@ pub fn sadd(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     store_set(db, key.clone(), set);
 
     if added > 0 {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(added))
@@ -134,8 +134,8 @@ pub fn srem(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     store_set(db, key.clone(), set);
 
     if removed > 0 {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(removed))
@@ -261,8 +261,8 @@ pub fn sinterstore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
 
     store_set(db, dest.clone(), result);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(count))
 }
@@ -367,8 +367,8 @@ pub fn sunionstore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
 
     store_set(db, dest.clone(), result);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(count))
 }
@@ -413,8 +413,8 @@ pub fn sdiffstore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult
 
     store_set(db, dest.clone(), result);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
     Ok(RespValue::Integer(count))
 }
 
@@ -510,8 +510,8 @@ pub fn spop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         set.remove(&popped);
         store_set(db, key.clone(), set);
 
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
 
         return Ok(RespValue::BulkString(popped));
     }
@@ -534,8 +534,8 @@ pub fn spop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     store_set(db, key.clone(), set);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Array(result))
 }
@@ -568,8 +568,8 @@ pub fn smove(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     dst_set.insert(member);
     store_set(db, dst_key.clone(), dst_set);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(1))
 }

@@ -94,8 +94,8 @@ pub fn del(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     if deleted > 0 {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(deleted))
@@ -161,8 +161,8 @@ pub fn expire(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     )?;
 
     if result == RespValue::Integer(1) {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(result)
@@ -191,8 +191,8 @@ pub fn pexpire(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     )?;
 
     if result == RespValue::Integer(1) {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(result)
@@ -222,8 +222,8 @@ pub fn expireat(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let result = set_ttl_impl(ctx, &key, Duration::from_secs(ttl_secs as u64), condition)?;
 
     if result == RespValue::Integer(1) {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(result)
@@ -253,8 +253,8 @@ pub fn pexpireat(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
     let result = set_ttl_impl(ctx, &key, Duration::from_millis(ttl_ms as u64), condition)?;
 
     if result == RespValue::Integer(1) {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(result)
@@ -400,8 +400,8 @@ pub fn persist(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 entry.persist();
                 db.set(key.clone(), entry);
 
-                // Propagate to AOF
-                ctx.propagate_to_aof(args.iter().cloned().collect());
+                // Propagate to AOF and replication
+                ctx.propagate_args(args);
 
                 Ok(RespValue::Integer(1))
             } else {
@@ -564,8 +564,8 @@ pub fn rename(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             db.delete(&old_key);
             db.set(new_key, entry);
 
-            // Propagate to AOF
-            ctx.propagate_to_aof(args.iter().cloned().collect());
+            // Propagate to AOF and replication
+            ctx.propagate_args(args);
 
             Ok(RespValue::ok())
         }
@@ -605,8 +605,8 @@ pub fn renamenx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             db.delete(&old_key);
             db.set(new_key, entry);
 
-            // Propagate to AOF
-            ctx.propagate_to_aof(args.iter().cloned().collect());
+            // Propagate to AOF and replication
+            ctx.propagate_args(args);
 
             Ok(RespValue::Integer(1))
         }
@@ -1280,8 +1280,8 @@ pub fn move_key(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     target_db.set(key.clone(), entry);
     source_db.delete(&key);
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::Integer(1))
 }

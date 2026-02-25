@@ -145,8 +145,8 @@ pub fn rpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let len = list.len() as i64;
     db.set(key.clone(), Entry::new(RedisValue::List(list)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     // Notify any blocking waiters (BLPOP, BRPOP, etc.)
     ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
@@ -194,8 +194,8 @@ pub fn lpushx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let len = list.len() as i64;
     db.set(key.clone(), Entry::new(RedisValue::List(list)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     // Notify any blocking waiters (BLPOP, BRPOP, etc.)
     ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
@@ -243,8 +243,8 @@ pub fn rpushx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let len = list.len() as i64;
     db.set(key.clone(), Entry::new(RedisValue::List(list)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     // Notify any blocking waiters (BLPOP, BRPOP, etc.)
     ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
@@ -315,8 +315,8 @@ pub fn lpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
 
             if element.is_some() {
-                // Propagate to AOF
-                ctx.propagate_to_aof(args.iter().cloned().collect());
+                // Propagate to AOF and replication
+                ctx.propagate_args(args);
             }
 
             match element {
@@ -338,8 +338,8 @@ pub fn lpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
 
             if !results.is_empty() {
-                // Propagate to AOF
-                ctx.propagate_to_aof(args.iter().cloned().collect());
+                // Propagate to AOF and replication
+                ctx.propagate_args(args);
             }
 
             if results.is_empty() {
@@ -403,8 +403,8 @@ pub fn rpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
 
             if element.is_some() {
-                // Propagate to AOF
-                ctx.propagate_to_aof(args.iter().cloned().collect());
+                // Propagate to AOF and replication
+                ctx.propagate_args(args);
             }
 
             match element {
@@ -426,8 +426,8 @@ pub fn rpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
 
             if !results.is_empty() {
-                // Propagate to AOF
-                ctx.propagate_to_aof(args.iter().cloned().collect());
+                // Propagate to AOF and replication
+                ctx.propagate_args(args);
             }
 
             if results.is_empty() {
@@ -610,8 +610,8 @@ pub fn lset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     list[normalized] = element;
     db.set(key.clone(), Entry::new(RedisValue::List(list)));
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::ok())
 }
@@ -728,8 +728,8 @@ pub fn lrem(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     if removed > 0 {
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(removed))
@@ -792,8 +792,8 @@ pub fn linsert(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             let len = list.len() as i64;
             db.set(key.clone(), Entry::new(RedisValue::List(list)));
 
-            // Propagate to AOF
-            ctx.propagate_to_aof(args.iter().cloned().collect());
+            // Propagate to AOF and replication
+            ctx.propagate_args(args);
 
             // Notify any blocking waiters (BLPOP, BRPOP, etc.)
             ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
@@ -869,8 +869,8 @@ pub fn ltrim(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         db.set(key.clone(), Entry::new(RedisValue::List(trimmed)));
     }
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::ok())
 }
@@ -1153,8 +1153,8 @@ pub fn lmove(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         db.set(dest_key.clone(), Entry::new(RedisValue::List(dest_list)));
     }
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::BulkString(element))
 }
@@ -1267,8 +1267,8 @@ pub fn lmpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             db.set(key.clone(), Entry::new(RedisValue::List(list)));
         }
 
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
 
         let result = RespValue::Array(vec![
             RespValue::BulkString(key.clone()),

@@ -158,8 +158,8 @@ pub fn pfadd(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if modified {
         db.set(key.clone(), Entry::new(RedisValue::String(hll.to_bytes())));
 
-        // Propagate to AOF
-        ctx.propagate_to_aof(args.iter().cloned().collect());
+        // Propagate to AOF and replication
+        ctx.propagate_args(args);
     }
 
     Ok(RespValue::Integer(if modified { 1 } else { 0 }))
@@ -252,8 +252,8 @@ pub fn pfmerge(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         Entry::new(RedisValue::String(merged.to_bytes())),
     );
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(args.iter().cloned().collect());
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
 
     Ok(RespValue::ok())
 }

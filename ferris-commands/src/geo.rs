@@ -194,12 +194,12 @@ pub fn geoadd(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         idx += 3;
     }
 
-    // Propagate to AOF
-    ctx.propagate_to_aof(
+    // Propagate to AOF and replication
+    let propagate_cmd: Vec<RespValue> =
         std::iter::once(RespValue::BulkString(Bytes::from("GEOADD")))
             .chain(args.iter().cloned())
-            .collect(),
-    );
+            .collect();
+    ctx.propagate(&propagate_cmd);
 
     let result = if ch {
         added_count + changed_count

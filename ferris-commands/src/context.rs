@@ -42,6 +42,10 @@ pub struct CommandContext {
     protocol_version: u32,
     /// Transaction state (MULTI/EXEC/WATCH)
     transaction_state: TransactionState,
+    /// Whether we're applying replicated commands (bypass read-only check)
+    applying_replication: bool,
+    /// Current command name being executed (for propagation)
+    current_command: Option<String>,
 }
 
 impl CommandContext {
@@ -64,6 +68,8 @@ impl CommandContext {
             client_name: None,
             protocol_version: 2,
             transaction_state: TransactionState::new(),
+            applying_replication: false,
+            current_command: None,
         }
     }
 
@@ -85,6 +91,8 @@ impl CommandContext {
             client_name: None,
             protocol_version: 2,
             transaction_state: TransactionState::new(),
+            applying_replication: false,
+            current_command: None,
         }
     }
 
@@ -110,6 +118,8 @@ impl CommandContext {
             client_name: None,
             protocol_version: 2,
             transaction_state: TransactionState::new(),
+            applying_replication: false,
+            current_command: None,
         }
     }
 
@@ -137,6 +147,8 @@ impl CommandContext {
             client_name: None,
             protocol_version: 2,
             transaction_state: TransactionState::new(),
+            applying_replication: false,
+            current_command: None,
         }
     }
 
@@ -295,6 +307,30 @@ impl CommandContext {
         }
     }
 
+    /// Set whether we're applying replicated commands
+    ///
+    /// When true, write commands will be allowed even if this is a replica.
+    pub fn set_applying_replication(&mut self, applying: bool) {
+        self.applying_replication = applying;
+    }
+
+    /// Check if we're applying replicated commands
+    #[must_use]
+    pub const fn is_applying_replication(&self) -> bool {
+        self.applying_replication
+    }
+
+    /// Set the current command name (called by executor before executing command)
+    pub fn set_current_command(&mut self, command: String) {
+        self.current_command = Some(command);
+    }
+
+    /// Get the current command name
+    #[must_use]
+    pub fn current_command(&self) -> Option<&str> {
+        self.current_command.as_deref()
+    }
+
     /// Propagate a write command to replication backlog (non-blocking)
     ///
     /// This should be called after successfully executing a write command.
@@ -316,10 +352,56 @@ impl CommandContext {
     ///
     /// # Arguments
     ///
-    /// * `command` - The command and its arguments to propagate
+    /// * `command` - The command and its arguments to propagate (full command including name)
     pub fn propagate(&self, command: &[RespValue]) {
         self.propagate_to_aof(command.to_vec());
         self.propagate_to_replication(command);
+    }
+
+    /// Propagate current command's args to both AOF and replication
+    ///
+    /// Uses the current command name set by the executor.
+    /// This should be called after successfully executing a write command.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - The command arguments (without command name)
+    ///
+    /// # Panics
+    ///
+    /// Panics if current_command is not set (should always be set by executor)
+    pub fn propagate_args(&self, args: &[RespValue]) {
+        use bytes::Bytes;
+
+        // If current_command is not set (e.g., in unit tests that call commands directly),
+        // we can't propagate. This is OK for unit tests as they don't have AOF/replication.
+        let Some(cmd_name) = self.current_command.as_ref() else {
+            return;
+        };
+
+        let mut full_command = Vec::with_capacity(args.len() + 1);
+        full_command.push(RespValue::BulkString(Bytes::from(cmd_name.clone())));
+        full_command.extend_from_slice(args);
+
+        self.propagate(&full_command);
+    }
+
+    /// Propagate a write command with name and args to both AOF and replication
+    ///
+    /// This is a convenience method for commands that have the name and args separately.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The command name (e.g., "SET")
+    /// * `args` - The command arguments
+    pub fn propagate_with_name(&self, name: &str, args: &[RespValue]) {
+        use bytes::Bytes;
+
+        let mut full_command = Vec::with_capacity(args.len() + 1);
+        full_command.push(RespValue::BulkString(Bytes::from(name.to_uppercase())));
+        full_command.extend_from_slice(args);
+
+        self.propagate(&full_command);
     }
 }
 
