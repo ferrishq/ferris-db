@@ -1783,3 +1783,67 @@ async fn test_connection_timeout_reset_on_activity() {
 
     server.stop().await;
 }
+
+// BITFIELD_RO tests
+#[tokio::test]
+async fn test_bitfield_ro_get() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Set some bit values using BITFIELD
+    client
+        .cmd(&["BITFIELD", "mykey", "SET", "u8", "0", "255"])
+        .await;
+
+    // Read with BITFIELD_RO
+    let result = client
+        .cmd(&["BITFIELD_RO", "mykey", "GET", "u8", "0"])
+        .await;
+    if let RespValue::Array(values) = result {
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0], RespValue::Integer(255));
+    } else {
+        panic!("Expected array");
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_bitfield_ro_rejects_write() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Try to use SET (should fail)
+    let result = client
+        .cmd(&["BITFIELD_RO", "mykey", "SET", "u8", "0", "1"])
+        .await;
+    assert!(matches!(result, RespValue::Error(_)));
+
+    // Try to use INCRBY (should fail)
+    let result = client
+        .cmd(&["BITFIELD_RO", "mykey", "INCRBY", "u8", "0", "1"])
+        .await;
+    assert!(matches!(result, RespValue::Error(_)));
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_bitfield_ro_nonexistent_key() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // GET from non-existent key should return 0
+    let result = client
+        .cmd(&["BITFIELD_RO", "nonexistent", "GET", "u8", "0"])
+        .await;
+    if let RespValue::Array(values) = result {
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0], RespValue::Integer(0));
+    } else {
+        panic!("Expected array");
+    }
+
+    server.stop().await;
+}

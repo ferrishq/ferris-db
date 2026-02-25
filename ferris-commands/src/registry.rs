@@ -483,6 +483,10 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "BITFIELD",
         cmd("BITFIELD", -2, write_flags(), crate::string::bitfield),
     );
+    registry.register(
+        "BITFIELD_RO",
+        cmd("BITFIELD_RO", -2, read_flags(), crate::string::bitfield_ro),
+    );
     registry.register("LCS", cmd("LCS", -3, read_flags(), crate::string::lcs));
 
     // Key commands

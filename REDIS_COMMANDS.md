@@ -2,7 +2,7 @@
 
 **Last Updated**: 2026-02-25  
 **Total Redis Commands**: ~470 (Redis 7.2)  
-**Implemented in ferris-db**: 224 commands  
+**Implemented in ferris-db**: 225 commands  
 **Coverage**: ~48%
 
 > This document tracks Redis command compatibility. Commands are organized by category matching Redis documentation.
@@ -19,7 +19,7 @@
 
 ---
 
-## String Commands (24/30)
+## String Commands (25/30)
 
 | Command | Status | Notes |
 |---------|--------|-------|
@@ -51,10 +51,10 @@
 | BITPOS | ✅ | |
 | BITOP | ✅ | AND, OR, XOR, NOT |
 | BITFIELD | ✅ | |
-| BITFIELD_RO | ❌ | Read-only variant |
+| BITFIELD_RO | ✅ | Read-only variant (Redis 6.0+) |
 | STRALGO | ❌ | Moved to LCS in Redis 7.0 |
 
-**Coverage**: 24/30 (80%)
+**Coverage**: 25/30 (83%)
 
 ---
 

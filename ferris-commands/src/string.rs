@@ -7033,6 +7033,73 @@ pub fn bitfield(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     Ok(RespValue::Array(results))
 }
 
+/// BITFIELD_RO key [GET type offset]...
+///
+/// Read-only variant of BITFIELD that only supports GET operations.
+/// This is useful for read-only replicas and provides better semantics.
+///
+/// Time complexity: O(n) where n is the number of GET operations
+pub fn bitfield_ro(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.is_empty() {
+        return Err(CommandError::WrongArity("BITFIELD_RO".to_string()));
+    }
+
+    let key = get_bytes(&args[0])?;
+    let db_index = ctx.selected_db();
+    let db = ctx.store().database(db_index);
+
+    // Get the string (read-only, don't create if doesn't exist)
+    let bytes_vec: Vec<u8> = if let Some(entry) = db.get(&key) {
+        if entry.is_expired() {
+            Vec::new() // Empty vector for expired keys
+        } else {
+            match &entry.value {
+                RedisValue::String(s) => s.to_vec(),
+                _ => return Err(CommandError::WrongType),
+            }
+        }
+    } else {
+        Vec::new() // Empty vector for non-existent keys
+    };
+    let bytes = bytes_vec.as_slice();
+
+    let mut results = Vec::new();
+    let mut i = 1;
+
+    while i < args.len() {
+        let subcommand = args[i]
+            .as_str()
+            .ok_or_else(|| CommandError::SyntaxError)?
+            .to_uppercase();
+
+        match subcommand.as_str() {
+            "GET" => {
+                if i + 2 >= args.len() {
+                    return Err(CommandError::SyntaxError);
+                }
+                let (_type_str, signed, bits) = parse_type(&args[i + 1])?;
+                let offset: i64 = args[i + 2]
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+                    .ok_or_else(|| CommandError::NotAnInteger)?;
+
+                let value = get_bitfield_value(bytes, offset, bits, signed);
+                results.push(RespValue::Integer(value));
+                i += 3;
+            }
+            // BITFIELD_RO only supports GET, reject all other subcommands
+            "SET" | "INCRBY" | "OVERFLOW" => {
+                return Err(CommandError::InvalidArgument(
+                    "BITFIELD_RO only supports the GET subcommand".to_string(),
+                ));
+            }
+            _ => return Err(CommandError::SyntaxError),
+        }
+    }
+
+    Ok(RespValue::Array(results))
+}
+
 /// Parse type string like "i8", "u16", etc.
 fn parse_type(arg: &RespValue) -> Result<(&str, bool, usize), CommandError> {
     let type_str = arg.as_str().ok_or_else(|| CommandError::SyntaxError)?;
@@ -7058,6 +7125,11 @@ fn parse_type(arg: &RespValue) -> Result<(&str, bool, usize), CommandError> {
 
 /// Get a bitfield value from byte array
 fn get_bitfield_value(bytes: &[u8], offset: i64, bits: usize, signed: bool) -> i64 {
+    // Validate bits parameter to prevent overflow
+    if bits == 0 || bits > 64 {
+        return 0;
+    }
+
     let bit_offset = if offset >= 0 {
         offset as usize
     } else {
@@ -7102,6 +7174,11 @@ fn get_bitfield_value(bytes: &[u8], offset: i64, bits: usize, signed: bool) -> i
 
 /// Set a bitfield value in byte array
 fn set_bitfield_value(bytes: &mut Vec<u8>, offset: i64, bits: usize, value: i64, _signed: bool) {
+    // Validate bits parameter to prevent overflow
+    if bits == 0 || bits > 64 {
+        return;
+    }
+
     let bit_offset = if offset >= 0 {
         offset as usize
     } else {
@@ -7133,8 +7210,10 @@ fn set_bitfield_value(bytes: &mut Vec<u8>, offset: i64, bits: usize, value: i64,
         let shift = bits - bits_written - bits_to_write;
         let bits_val = ((val >> shift) & ((1u64 << bits_to_write) - 1)) as u8;
 
-        let mask = ((1u8 << bits_to_write) - 1) << (8 - bit_idx - bits_to_write);
-        bytes[byte_idx] = (bytes[byte_idx] & !mask) | (bits_val << (8 - bit_idx - bits_to_write));
+        // Use u32 for mask calculation to avoid u8 shift overflow
+        let mask = ((1u32 << bits_to_write) - 1) as u8;
+        let shift_amount = 8 - bit_idx - bits_to_write;
+        bytes[byte_idx] = (bytes[byte_idx] & !(mask << shift_amount)) | (bits_val << shift_amount);
 
         bits_written += bits_to_write;
     }
