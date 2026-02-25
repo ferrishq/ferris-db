@@ -1,6 +1,7 @@
 //! Replication manager - high-level coordination of replication state and backlog
 
 use crate::backlog::{BacklogConfig, ReplicationBacklog};
+use crate::consistency::ConsistencyMode;
 use crate::follower::Follower;
 use crate::follower_tracker::FollowerTracker;
 use crate::state::ReplicationState;
@@ -21,6 +22,8 @@ pub struct ReplicationManager {
     follower_tracker: Arc<FollowerTracker>,
     /// Broadcast channel for streaming new commands to followers
     command_broadcast: broadcast::Sender<Bytes>,
+    /// Replication consistency mode
+    consistency_mode: Arc<RwLock<ConsistencyMode>>,
 }
 
 impl Default for ReplicationManager {
@@ -43,6 +46,7 @@ impl ReplicationManager {
             follower: Arc::new(RwLock::new(None)),
             follower_tracker: Arc::new(FollowerTracker::new()),
             command_broadcast,
+            consistency_mode: Arc::new(RwLock::new(ConsistencyMode::default())),
         }
     }
 
@@ -57,6 +61,7 @@ impl ReplicationManager {
             follower: Arc::new(RwLock::new(None)),
             follower_tracker: Arc::new(FollowerTracker::new()),
             command_broadcast,
+            consistency_mode: Arc::new(RwLock::new(ConsistencyMode::default())),
         }
     }
 
@@ -276,6 +281,49 @@ impl ReplicationManager {
         let offset_valid = self.backlog.can_partial_resync(offset);
 
         id_matches && offset_valid
+    }
+
+    /// Get the current consistency mode
+    pub async fn consistency_mode(&self) -> ConsistencyMode {
+        *self.consistency_mode.read().await
+    }
+
+    /// Set the consistency mode
+    pub async fn set_consistency_mode(&self, mode: ConsistencyMode) {
+        *self.consistency_mode.write().await = mode;
+    }
+
+    /// Wait for replicas according to the current consistency mode
+    ///
+    /// This should be called after propagating write commands.
+    /// Returns the number of replicas that acknowledged within the timeout.
+    ///
+    /// For async mode, returns immediately without waiting.
+    /// For semi-sync/sync, blocks until enough replicas acknowledge or timeout.
+    pub async fn wait_for_consistency(&self, current_offset: u64) -> usize {
+        // Only wait if we're a master
+        if !self.state.is_master() {
+            return 0;
+        }
+
+        let mode = self.consistency_mode().await;
+
+        // Get wait parameters based on mode
+        let follower_count = self.follower_tracker.follower_count().await;
+        let wait_params = mode.wait_params(follower_count);
+
+        match wait_params {
+            None => {
+                // Async mode - no waiting
+                0
+            }
+            Some((num_replicas, timeout)) => {
+                // Wait for replicas to reach the offset
+                self.follower_tracker
+                    .wait_for_offset(num_replicas, current_offset, Some(timeout))
+                    .await
+            }
+        }
     }
 }
 

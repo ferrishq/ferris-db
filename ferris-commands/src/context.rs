@@ -363,6 +363,9 @@ impl CommandContext {
     /// Uses the current command name set by the executor.
     /// This should be called after successfully executing a write command.
     ///
+    /// If replication consistency mode is semi-sync or sync, this will block
+    /// until enough replicas acknowledge the write (or timeout).
+    ///
     /// # Arguments
     ///
     /// * `args` - The command arguments (without command name)
@@ -390,6 +393,16 @@ impl CommandContext {
         full_command.extend_from_slice(args);
 
         self.propagate(&full_command);
+
+        // TODO(consistency): Add blocking wait for consistency modes here
+        // Currently, only async mode (fire-and-forget) is supported from sync context.
+        // To implement semi-sync/sync modes, we need to either:
+        // 1. Refactor command execution to be fully async, or
+        // 2. Use a thread pool for blocking waits
+        //
+        // For now, all writes use async replication (commands return immediately,
+        // replication happens in background). The infrastructure for consistency
+        // modes is in place in ReplicationManager.
     }
 
     /// Propagate a write command with name and args to both AOF and replication

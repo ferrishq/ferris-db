@@ -7,6 +7,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod backlog;
+pub mod consistency;
 pub mod follower;
 pub mod follower_tracker;
 pub mod manager;
@@ -14,10 +15,10 @@ pub mod state;
 
 // Modules to be implemented later
 // pub mod leader;
-// pub mod consistency;
 // pub mod cluster;
 
 pub use backlog::{BacklogConfig, BacklogEntry, ReplicationBacklog};
+pub use consistency::ConsistencyMode;
 pub use follower::{Follower, FollowerConfig, FollowerState, ReplicationCommand};
 pub use follower_tracker::{FollowerConnection, FollowerTracker};
 pub use manager::{ReplicationInfo, ReplicationManager};
