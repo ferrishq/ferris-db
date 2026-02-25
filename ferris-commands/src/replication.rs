@@ -317,17 +317,24 @@ pub fn psync(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         if let Some(manager) = ctx.replication_manager() {
             let info = manager.info();
 
+            // Generate a unique follower ID (using timestamp for now)
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let follower_id = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+
             // Return FULLRESYNC with our replication ID and current offset
-            let response = format!(
+            let response = RespValue::SimpleString(format!(
                 "FULLRESYNC {} {}",
                 info.master_replid, info.master_repl_offset
-            );
+            ));
 
-            // TODO: Send RDB snapshot after this response
-            // For now, we just return the FULLRESYNC response
-            // The follower will then expect the RDB data and command stream
-
-            return Ok(RespValue::SimpleString(response));
+            // Signal the connection handler to enter replication streaming mode
+            return Err(CommandError::EnterReplicationMode {
+                follower_id,
+                response,
+            });
         }
 
         // No replication manager - cannot perform PSYNC
@@ -348,23 +355,36 @@ pub fn psync(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         // 1. Replication ID must match
         // 2. Offset must be in backlog range
 
+        // Generate a unique follower ID
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let follower_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
         if repl_id == info.master_replid {
             // TODO: Check if offset is in backlog
             // For now, we always do full resync if offset doesn't match exactly
 
             if offset >= 0 && offset as u64 == info.master_repl_offset {
                 // Replica is up to date, continue with current ID
-                let response = format!("CONTINUE {}", info.master_replid);
-                return Ok(RespValue::SimpleString(response));
+                let response = RespValue::SimpleString(format!("CONTINUE {}", info.master_replid));
+                return Err(CommandError::EnterReplicationMode {
+                    follower_id,
+                    response,
+                });
             }
         }
 
         // Cannot do partial resync, fall back to full resync
-        let response = format!(
+        let response = RespValue::SimpleString(format!(
             "FULLRESYNC {} {}",
             info.master_replid, info.master_repl_offset
-        );
-        return Ok(RespValue::SimpleString(response));
+        ));
+        return Err(CommandError::EnterReplicationMode {
+            follower_id,
+            response,
+        });
     }
 
     Err(CommandError::Internal(

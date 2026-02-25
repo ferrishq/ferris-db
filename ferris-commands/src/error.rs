@@ -1,6 +1,7 @@
 //! Command error types
 
 use crate::BlockingAction;
+use ferris_protocol::RespValue;
 use thiserror::Error;
 
 /// Errors that can occur during command execution
@@ -71,6 +72,17 @@ pub enum CommandError {
     /// to block until data becomes available or timeout expires.
     #[error("BLOCK")]
     Block(BlockingAction),
+
+    /// Enter replication streaming mode.
+    /// This is not a real error — it signals the connection handler
+    /// to switch to replication streaming mode after PSYNC.
+    #[error("REPLICATION")]
+    EnterReplicationMode {
+        /// The follower ID assigned by the tracker
+        follower_id: u64,
+        /// The response to send before entering streaming mode
+        response: RespValue,
+    },
 }
 
 impl CommandError {

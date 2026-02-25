@@ -214,6 +214,36 @@ pub async fn handle_connection(
                                 }
                             }
                         }
+                        Err(CommandError::EnterReplicationMode { follower_id, response }) => {
+                            // Replication mode - send response then switch to streaming
+                            // First, send all responses collected so far
+                            for resp in responses.drain(..) {
+                                if framed.send(resp).await.is_err() {
+                                    should_break = true;
+                                    break;
+                                }
+                            }
+                            if should_break {
+                                break;
+                            }
+
+                            // Send the PSYNC response
+                            if framed.send(response).await.is_err() {
+                                break;
+                            }
+
+                            // Enter replication streaming mode
+                            debug!(peer = %peer, follower_id = follower_id, "Entering replication mode");
+                            handle_replication_streaming(
+                                framed,
+                                &ctx,
+                                follower_id,
+                                &mut shutdown,
+                            ).await;
+
+                            // After replication ends, close connection
+                            return;
+                        }
                         Err(e) => RespValue::Error(e.to_resp_string()),
                         }
                     };
@@ -393,6 +423,84 @@ async fn wait_any_notify(notifies: &[Arc<tokio::sync::Notify>]) {
     // Cancel remaining tasks
     for handle in handles {
         handle.abort();
+    }
+}
+
+/// Handle replication streaming after PSYNC
+///
+/// This function takes over the connection and streams replication commands
+/// to the follower. It sends all commands from the backlog, then subscribes
+/// to new commands via a broadcast channel.
+async fn handle_replication_streaming(
+    mut framed: Framed<TcpStream, RespCodec>,
+    ctx: &CommandContext,
+    follower_id: u64,
+    shutdown: &mut Shutdown,
+) {
+    use tokio::io::AsyncWriteExt;
+
+    // Get the replication manager
+    let Some(replication_manager) = ctx.replication_manager() else {
+        warn!("No replication manager available for streaming");
+        return;
+    };
+
+    // Get the backlog to send historical commands
+    let backlog = replication_manager.backlog();
+
+    // Send all commands from the backlog (full sync)
+    debug!(
+        follower_id = follower_id,
+        "Sending backlog commands to follower"
+    );
+
+    if let Some(entries) = backlog.get_from_offset(0) {
+        for entry in entries {
+            // Write raw bytes directly to the stream
+            let stream = framed.get_mut();
+            if let Err(e) = stream.write_all(&entry.data).await {
+                warn!(follower_id = follower_id, error = %e, "Failed to send backlog command");
+                return;
+            }
+            if let Err(e) = stream.flush().await {
+                warn!(follower_id = follower_id, error = %e, "Failed to flush backlog command");
+                return;
+            }
+        }
+    }
+
+    debug!(
+        follower_id = follower_id,
+        "Backlog sent, entering streaming mode"
+    );
+
+    // TODO: Subscribe to new commands via broadcast channel
+    // For now, just keep the connection alive and watch for disconnection
+    loop {
+        tokio::select! {
+            () = shutdown.recv() => {
+                debug!(follower_id = follower_id, "Shutdown signal, closing replication connection");
+                return;
+            }
+            frame = framed.next() => {
+                // If we get anything from the follower (or disconnection), handle it
+                match frame {
+                    Some(Ok(_frame)) => {
+                        // Followers shouldn't send commands during replication streaming
+                        // But if they do, we just ignore them
+                        debug!(follower_id = follower_id, "Received unexpected frame from follower during streaming");
+                    }
+                    Some(Err(e)) => {
+                        debug!(follower_id = follower_id, error = %e, "Follower connection error");
+                        return;
+                    }
+                    None => {
+                        debug!(follower_id = follower_id, "Follower disconnected");
+                        return;
+                    }
+                }
+            }
+        }
     }
 }
 
