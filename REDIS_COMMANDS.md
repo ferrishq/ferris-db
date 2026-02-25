@@ -1,9 +1,9 @@
 # Redis Commands Implementation Status
 
-**Last Updated**: 2026-02-24  
+**Last Updated**: 2026-02-25  
 **Total Redis Commands**: ~470 (Redis 7.2)  
-**Implemented in ferris-db**: 221 commands  
-**Coverage**: ~47%
+**Implemented in ferris-db**: 224 commands  
+**Coverage**: ~48%
 
 > This document tracks Redis command compatibility. Commands are organized by category matching Redis documentation.
 
@@ -349,19 +349,19 @@
 | LATENCY | ❌ | Latency monitoring |
 | LOLWUT | ❌ | Easter egg |
 | MONITOR | ❌ | Debug tool |
-| PSYNC | ❌ | Replication |
+| PSYNC | ✅ | Replication sync protocol |
 | READONLY | ❌ | Cluster |
 | READWRITE | ❌ | Cluster |
-| REPLICAOF | 📝 | Stub implementation |
-| REPLCONF | ❌ | Replication |
+| REPLICAOF | ✅ | Configure follower replication |
+| REPLCONF | ✅ | Replication configuration |
 | RESTORE-ASKING | ❌ | Cluster |
-| SLAVEOF | 📝 | Deprecated, use REPLICAOF |
+| SLAVEOF | ✅ | Deprecated alias for REPLICAOF |
 | SYNC | ❌ | Old replication protocol |
 | MODULE | ❌ | Module system |
 | FAILOVER | ❌ | Sentinel/cluster |
 | SENTINEL | ❌ | Sentinel commands |
 
-**Coverage**: 18/80+ (23%)
+**Coverage**: 21/80+ (26%)
 
 ---
 
