@@ -1107,6 +1107,19 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "WAITAOF",
         cmd("WAITAOF", 4, read_flags(), crate::replication::waitaof),
     );
+    registry.register(
+        "PSYNC",
+        cmd("PSYNC", 3, admin_flags(), crate::replication::psync),
+    );
+    registry.register(
+        "REPLCONF",
+        cmd(
+            "REPLCONF",
+            -3, // Variable args, minimum 1 option-value pair
+            admin_flags(),
+            crate::replication::replconf,
+        ),
+    );
 }
 
 #[cfg(test)]

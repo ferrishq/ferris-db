@@ -1,9 +1,12 @@
 //! Replication manager - high-level coordination of replication state and backlog
 
 use crate::backlog::{BacklogConfig, ReplicationBacklog};
+use crate::follower::Follower;
 use crate::state::ReplicationState;
 use bytes::{BufMut, Bytes, BytesMut};
 use ferris_protocol::RespValue;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// High-level replication manager
 ///
@@ -11,6 +14,8 @@ use ferris_protocol::RespValue;
 pub struct ReplicationManager {
     state: ReplicationState,
     backlog: ReplicationBacklog,
+    /// Optional follower instance (when this server is a replica)
+    follower: Arc<RwLock<Option<Arc<Follower>>>>,
 }
 
 impl Default for ReplicationManager {
@@ -26,6 +31,7 @@ impl ReplicationManager {
         Self {
             state: ReplicationState::new(),
             backlog: ReplicationBacklog::new(),
+            follower: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -35,7 +41,19 @@ impl ReplicationManager {
         Self {
             state: ReplicationState::new(),
             backlog: ReplicationBacklog::with_config(backlog_config),
+            follower: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Get the follower instance (if this server is a replica)
+    #[must_use]
+    pub fn follower(&self) -> Arc<RwLock<Option<Arc<Follower>>>> {
+        self.follower.clone()
+    }
+
+    /// Set the follower instance
+    pub async fn set_follower(&self, follower: Option<Arc<Follower>>) {
+        *self.follower.write().await = follower;
     }
 
     /// Get a reference to the replication state
