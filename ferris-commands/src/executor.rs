@@ -24,6 +24,11 @@ impl CommandExecutor {
             .get(&cmd.name)
             .ok_or_else(|| CommandError::UnknownCommand(cmd.name.clone()))?;
 
+        // Check if this is a write command on a read-only replica
+        if spec.flags.write && ctx.is_replica() {
+            return Err(CommandError::ReadOnly);
+        }
+
         // Check arity (negative means at least abs(arity) args)
         let expected_arity = spec.arity;
         let actual_arity = (cmd.args.len() + 1) as i32; // +1 for command name

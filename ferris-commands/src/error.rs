@@ -62,6 +62,10 @@ pub enum CommandError {
     #[error("ERR {0}")]
     Internal(String),
 
+    /// Read-only replica - write commands not allowed
+    #[error("READONLY You can't write against a read only replica.")]
+    ReadOnly,
+
     /// Blocking command needs to wait for data.
     /// This is not a real error — it signals the connection handler
     /// to block until data becomes available or timeout expires.

@@ -265,6 +265,18 @@ impl CommandContext {
         self.replication_manager.as_ref()
     }
 
+    /// Check if this server is currently a replica (follower)
+    ///
+    /// Returns true if the server is in replica mode and should reject writes.
+    #[must_use]
+    pub fn is_replica(&self) -> bool {
+        if let Some(manager) = &self.replication_manager {
+            manager.state().is_replica()
+        } else {
+            false
+        }
+    }
+
     /// Propagate a write command to replication backlog (non-blocking)
     ///
     /// This should be called after successfully executing a write command.
