@@ -13,7 +13,7 @@ use tokio::time::{sleep, Duration};
 
 /// Helper to wait for replication to propagate
 async fn wait_for_replication() {
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]

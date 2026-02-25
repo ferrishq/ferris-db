@@ -474,16 +474,44 @@ async fn handle_replication_streaming(
         "Backlog sent, entering streaming mode"
     );
 
-    // TODO: Subscribe to new commands via broadcast channel
-    // For now, just keep the connection alive and watch for disconnection
+    // Subscribe to new commands via broadcast channel
+    let mut command_rx = replication_manager.subscribe();
+
+    // Stream new commands as they arrive
     loop {
         tokio::select! {
             () = shutdown.recv() => {
                 debug!(follower_id = follower_id, "Shutdown signal, closing replication connection");
                 return;
             }
+            // New command from broadcast channel
+            result = command_rx.recv() => {
+                match result {
+                    Ok(data) => {
+                        // Write command to follower
+                        let stream = framed.get_mut();
+                        if let Err(e) = stream.write_all(&data).await {
+                            warn!(follower_id = follower_id, error = %e, "Failed to send command");
+                            return;
+                        }
+                        if let Err(e) = stream.flush().await {
+                            warn!(follower_id = follower_id, error = %e, "Failed to flush command");
+                            return;
+                        }
+                        trace!(follower_id = follower_id, bytes = data.len(), "Sent command to follower");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!(follower_id = follower_id, lagged = n, "Follower lagged, missed {} commands", n);
+                        // Continue - follower will need to do a full resync on reconnect
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        debug!(follower_id = follower_id, "Broadcast channel closed");
+                        return;
+                    }
+                }
+            }
+            // Check for follower disconnection
             frame = framed.next() => {
-                // If we get anything from the follower (or disconnection), handle it
                 match frame {
                     Some(Ok(_frame)) => {
                         // Followers shouldn't send commands during replication streaming

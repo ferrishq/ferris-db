@@ -7,7 +7,7 @@ use crate::state::ReplicationState;
 use bytes::{BufMut, Bytes, BytesMut};
 use ferris_protocol::RespValue;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 
 /// High-level replication manager
 ///
@@ -19,6 +19,8 @@ pub struct ReplicationManager {
     follower: Arc<RwLock<Option<Arc<Follower>>>>,
     /// Tracker for connected followers (when this server is a leader)
     follower_tracker: Arc<FollowerTracker>,
+    /// Broadcast channel for streaming new commands to followers
+    command_broadcast: broadcast::Sender<Bytes>,
 }
 
 impl Default for ReplicationManager {
@@ -31,23 +33,39 @@ impl ReplicationManager {
     /// Create a new replication manager with default configuration
     #[must_use]
     pub fn new() -> Self {
+        // Create broadcast channel for streaming commands to followers
+        // Capacity of 1000 commands - if a follower lags more than this, it will miss commands
+        let (command_broadcast, _) = broadcast::channel(1000);
+
         Self {
             state: ReplicationState::new(),
             backlog: ReplicationBacklog::new(),
             follower: Arc::new(RwLock::new(None)),
             follower_tracker: Arc::new(FollowerTracker::new()),
+            command_broadcast,
         }
     }
 
     /// Create a new replication manager with custom backlog configuration
     #[must_use]
     pub fn with_config(backlog_config: BacklogConfig) -> Self {
+        let (command_broadcast, _) = broadcast::channel(1000);
+
         Self {
             state: ReplicationState::new(),
             backlog: ReplicationBacklog::with_config(backlog_config),
             follower: Arc::new(RwLock::new(None)),
             follower_tracker: Arc::new(FollowerTracker::new()),
+            command_broadcast,
         }
+    }
+
+    /// Subscribe to the command broadcast channel
+    ///
+    /// Returns a receiver that will get all new commands appended to the backlog
+    #[must_use]
+    pub fn subscribe(&self) -> broadcast::Receiver<Bytes> {
+        self.command_broadcast.subscribe()
     }
 
     /// Get the follower tracker
@@ -82,7 +100,7 @@ impl ReplicationManager {
     /// Append a command to the replication stream
     ///
     /// Serializes the command to RESP format and adds it to the backlog.
-    /// Also broadcasts the command to all connected followers (if in a Tokio runtime).
+    /// Also broadcasts the command to all connected followers via the broadcast channel.
     /// Returns the new replication offset.
     pub fn append_command(&self, command: &[RespValue], db: usize) -> u64 {
         // Serialize command to RESP format
@@ -94,8 +112,13 @@ impl ReplicationManager {
         // Update state offset
         self.state.set_offset(offset);
 
-        // Broadcast to all connected followers (only if we have a runtime)
-        // This is best-effort - if there's no runtime (e.g., in tests), we skip it
+        // Broadcast to all followers via the channel
+        // This is best-effort - if all receivers have lagged, send() may fail
+        // but that's okay as followers will get the data from backlog on reconnect
+        let _ = self.command_broadcast.send(data.clone());
+
+        // Also broadcast via FollowerTracker (for the old implementation)
+        // This is redundant now but kept for compatibility
         let tracker = self.follower_tracker.clone();
         if tokio::runtime::Handle::try_current().is_ok() {
             tokio::spawn(async move {
