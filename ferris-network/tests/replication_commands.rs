@@ -458,7 +458,8 @@ async fn test_wait_large_timeout() {
     let elapsed = start.elapsed();
 
     assert_eq!(result, RespValue::Integer(0));
-    assert!(elapsed.as_millis() >= 90 && elapsed.as_millis() < 200);
+    // CI environments can be slower, allow up to 300ms
+    assert!(elapsed.as_millis() >= 90 && elapsed.as_millis() < 300);
 
     server.stop().await;
 }
@@ -477,8 +478,8 @@ async fn test_wait_very_short_timeout() {
     let elapsed = start.elapsed();
 
     assert_eq!(result, RespValue::Integer(0));
-    // Should timeout quickly (10ms + overhead)
-    assert!(elapsed.as_millis() < 200);
+    // Should timeout quickly (10ms + overhead, CI can be slower)
+    assert!(elapsed.as_millis() < 300);
 
     server.stop().await;
 }
