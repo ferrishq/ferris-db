@@ -8,6 +8,7 @@
 
 pub mod backlog;
 pub mod follower;
+pub mod follower_tracker;
 pub mod manager;
 pub mod state;
 
@@ -18,5 +19,6 @@ pub mod state;
 
 pub use backlog::{BacklogConfig, BacklogEntry, ReplicationBacklog};
 pub use follower::{Follower, FollowerConfig, FollowerState, ReplicationCommand};
+pub use follower_tracker::{FollowerConnection, FollowerTracker};
 pub use manager::{ReplicationInfo, ReplicationManager};
 pub use state::{MasterInfo, ReplicationRole, ReplicationState};

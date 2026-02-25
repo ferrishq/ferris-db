@@ -2,6 +2,7 @@
 
 use crate::backlog::{BacklogConfig, ReplicationBacklog};
 use crate::follower::Follower;
+use crate::follower_tracker::FollowerTracker;
 use crate::state::ReplicationState;
 use bytes::{BufMut, Bytes, BytesMut};
 use ferris_protocol::RespValue;
@@ -16,6 +17,8 @@ pub struct ReplicationManager {
     backlog: ReplicationBacklog,
     /// Optional follower instance (when this server is a replica)
     follower: Arc<RwLock<Option<Arc<Follower>>>>,
+    /// Tracker for connected followers (when this server is a leader)
+    follower_tracker: Arc<FollowerTracker>,
 }
 
 impl Default for ReplicationManager {
@@ -32,6 +35,7 @@ impl ReplicationManager {
             state: ReplicationState::new(),
             backlog: ReplicationBacklog::new(),
             follower: Arc::new(RwLock::new(None)),
+            follower_tracker: Arc::new(FollowerTracker::new()),
         }
     }
 
@@ -42,7 +46,14 @@ impl ReplicationManager {
             state: ReplicationState::new(),
             backlog: ReplicationBacklog::with_config(backlog_config),
             follower: Arc::new(RwLock::new(None)),
+            follower_tracker: Arc::new(FollowerTracker::new()),
         }
+    }
+
+    /// Get the follower tracker
+    #[must_use]
+    pub const fn follower_tracker(&self) -> &Arc<FollowerTracker> {
+        &self.follower_tracker
     }
 
     /// Get the follower instance (if this server is a replica)
@@ -71,16 +82,26 @@ impl ReplicationManager {
     /// Append a command to the replication stream
     ///
     /// Serializes the command to RESP format and adds it to the backlog.
+    /// Also broadcasts the command to all connected followers (if in a Tokio runtime).
     /// Returns the new replication offset.
     pub fn append_command(&self, command: &[RespValue], db: usize) -> u64 {
         // Serialize command to RESP format
         let data = Self::serialize_command(command, db);
 
         // Append to backlog
-        let offset = self.backlog.append(data);
+        let offset = self.backlog.append(data.clone());
 
         // Update state offset
         self.state.set_offset(offset);
+
+        // Broadcast to all connected followers (only if we have a runtime)
+        // This is best-effort - if there's no runtime (e.g., in tests), we skip it
+        let tracker = self.follower_tracker.clone();
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::spawn(async move {
+                tracker.broadcast_command(data).await;
+            });
+        }
 
         offset
     }
