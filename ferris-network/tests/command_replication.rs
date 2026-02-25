@@ -156,7 +156,6 @@ async fn test_incr_command_replication() {
 }
 
 #[tokio::test]
-#[ignore = "TODO: Fix timing/reliability issue"]
 async fn test_list_commands_replication() {
     let leader = TestServer::spawn().await;
     let mut leader_client = leader.client().await;
@@ -185,7 +184,7 @@ async fn test_list_commands_replication() {
         assert_eq!(items[1], RespValue::bulk_string("b"));
         assert_eq!(items[2], RespValue::bulk_string("a"));
     } else {
-        panic!("Expected array response");
+        panic!("Expected array response from LRANGE, got: {:?}", result);
     }
 
     follower.stop().await;
@@ -302,7 +301,6 @@ async fn test_sorted_set_commands_replication() {
 }
 
 #[tokio::test]
-#[ignore = "TODO: Fix timing/reliability issue"]
 async fn test_expire_command_replication() {
     let leader = TestServer::spawn().await;
     let mut leader_client = leader.client().await;
@@ -316,9 +314,9 @@ async fn test_expire_command_replication() {
         .await;
     wait_for_replication().await;
 
-    // Set key with expiry on leader
+    // Set key with expiry on leader (5 seconds to allow replication time)
     leader_client.cmd(&["SET", "expiring", "value"]).await;
-    leader_client.cmd(&["EXPIRE", "expiring", "1"]).await;
+    leader_client.cmd(&["EXPIRE", "expiring", "5"]).await;
 
     wait_for_replication().await;
 
@@ -328,8 +326,8 @@ async fn test_expire_command_replication() {
         RespValue::bulk_string("value")
     );
 
-    // Wait for expiry
-    sleep(Duration::from_secs(2)).await;
+    // Wait for expiry (need to wait the full 5 seconds + buffer)
+    sleep(Duration::from_millis(5500)).await;
 
     // Verify key expired on both leader and follower
     assert_eq!(

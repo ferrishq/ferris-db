@@ -100,6 +100,9 @@ pub fn lpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     // Notify any blocking waiters (BLPOP, BRPOP, etc.)
     ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
 
+    // Propagate to AOF and replication
+    ctx.propagate_args(args);
+
     Ok(RespValue::Integer(len))
 }
 
