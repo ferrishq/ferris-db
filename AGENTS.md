@@ -29,14 +29,26 @@ Every implementation task **MUST** satisfy all of the following:
      #![allow(clippy::needless_raw_string_hashes)]
      ```
 
-3. **Implementation MUST be multi-threaded.**
+3. **ALWAYS run cargo fmt before committing.**
+   - **CRITICAL**: Run `cargo fmt --all` after implementing ANY code or tests.
+   - Verify formatting with `cargo fmt --all -- --check` before final commit.
+   - Formatting errors are the most common source of CI failures.
+   - **Double-check workflow:**
+     1. After writing code: `cargo fmt --all`
+     2. After running tests: `cargo fmt --all` (tests may have been added)
+     3. Before committing: `git diff` to review formatting changes
+     4. Verify build still works: `cargo build --workspace`
+   - If you see formatting diffs in git, run `cargo fmt --all` again.
+   - **Never commit unformatted code** - it will fail CI immediately.
+
+4. **Implementation MUST be multi-threaded.**
    - Use `DashMap`-based sharded storage (key-level locking, NOT global locks).
    - Single-key operations lock only the relevant shard.
    - Multi-key operations sort shards by index before locking (prevents deadlocks).
    - Blocking operations use `tokio::sync::Notify` per key.
    - Never use `std::sync::Mutex` or any global lock that blocks unrelated keys.
 
-4. **Follow the design in DESIGN.md strictly.**
+5. **Follow the design in DESIGN.md strictly.**
    - All data types use the `RedisValue` enum defined in `ferris-core`.
    - All commands follow the handler pattern: `fn(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult`.
    - Commands must be registered in `registry.rs` with correct arity and flags.
@@ -44,6 +56,42 @@ Every implementation task **MUST** satisfy all of the following:
    - Cross-platform code only (no platform-specific code without `cfg` fallbacks).
    - No `unsafe` code (`#![deny(unsafe_code)]` in all crates).
    - Use `thiserror` for error types, return `Result<T, E>`, never `panic!()` or `unwrap()`.
+
+---
+
+## Pre-Commit Checklist (ALWAYS run these before committing!)
+
+**Run these commands in order:**
+
+```bash
+# 1. Format all code
+cargo fmt --all
+
+# 2. Check formatting is correct
+cargo fmt --all -- --check
+
+# 3. Build workspace
+cargo build --workspace
+
+# 4. Run clippy with strict warnings
+cargo clippy --workspace --all-targets -- -D warnings
+
+# 5. Run all tests
+cargo test --workspace
+
+# 6. Review changes
+git diff
+
+# 7. If everything passes, commit
+git add -A
+git commit -m "your message"
+```
+
+**Common Issues:**
+- **Formatting failures**: Most common! Always run `cargo fmt --all` first
+- **Clippy warnings**: Add `#![allow(...)]` attributes for test files if needed
+- **Test failures**: Fix before committing, never commit broken tests
+- **Untracked files**: Check `git status` to ensure all files are added
 
 ---
 
