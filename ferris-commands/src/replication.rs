@@ -97,9 +97,7 @@ pub fn replicaof(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
             manager_clone.set_follower(Some(follower.clone())).await;
 
             // Set as replica in state
-            manager_clone
-                .state()
-                .set_master(host.clone(), port);
+            manager_clone.state().set_master(host.clone(), port);
 
             tracing::info!("Starting replication from {}:{}", host, port);
 

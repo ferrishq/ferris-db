@@ -284,7 +284,11 @@ impl Follower {
         // Send REPLCONF listening-port
         Self::send_command(
             stream,
-            &["REPLCONF", "listening-port", &config.listening_port.to_string()],
+            &[
+                "REPLCONF",
+                "listening-port",
+                &config.listening_port.to_string(),
+            ],
         )
         .await?;
         let response = Self::read_resp(stream).await?;
@@ -473,10 +477,7 @@ mod tests {
 
     #[test]
     fn test_follower_state_transitions() {
-        assert_eq!(
-            FollowerState::Disconnected,
-            FollowerState::Disconnected
-        );
+        assert_eq!(FollowerState::Disconnected, FollowerState::Disconnected);
         assert_ne!(FollowerState::Connecting, FollowerState::Streaming);
     }
 
