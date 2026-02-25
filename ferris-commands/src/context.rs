@@ -373,6 +373,12 @@ impl CommandContext {
     pub fn propagate_args(&self, args: &[RespValue]) {
         use bytes::Bytes;
 
+        // If we're applying replicated commands from a leader, don't propagate again
+        // This prevents infinite loops and unnecessary work
+        if self.applying_replication {
+            return;
+        }
+
         // If current_command is not set (e.g., in unit tests that call commands directly),
         // we can't propagate. This is OK for unit tests as they don't have AOF/replication.
         let Some(cmd_name) = self.current_command.as_ref() else {

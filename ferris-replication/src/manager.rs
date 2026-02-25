@@ -106,11 +106,6 @@ impl ReplicationManager {
         // Serialize command to RESP format
         let data = Self::serialize_command(command, db);
 
-        eprintln!(
-            "[DEBUG] Manager appending command to backlog, {} bytes",
-            data.len()
-        );
-
         // Append to backlog
         let offset = self.backlog.append(data.clone());
 
@@ -120,11 +115,7 @@ impl ReplicationManager {
         // Broadcast to all followers via the channel
         // This is best-effort - if all receivers have lagged, send() may fail
         // but that's okay as followers will get the data from backlog on reconnect
-        let result = self.command_broadcast.send(data.clone());
-        eprintln!(
-            "[DEBUG] Broadcast result: {} receivers",
-            result.unwrap_or(0)
-        );
+        let _ = self.command_broadcast.send(data.clone());
 
         // Also broadcast via FollowerTracker (for the old implementation)
         // This is redundant now but kept for compatibility
