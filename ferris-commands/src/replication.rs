@@ -299,13 +299,11 @@ pub fn wait(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         return Ok(RespValue::Integer(0));
     }
 
-    // Fast path: If no writes have occurred (offset == 0), return immediately
+    // Fast path: If no writes have occurred (offset == 0), all replicas are trivially
+    // up-to-date with an empty replication stream. We still need to check how many
+    // replicas are connected, but we can use a very short timeout.
     if current_offset == 0 {
-        // All replicas are trivially up-to-date with an empty replication stream
-        // Just return the current replica count
         let follower_tracker = manager.follower_tracker();
-
-        // Use a blocking call to get follower count
         let (tx, rx) = std::sync::mpsc::channel();
         let tracker = follower_tracker.clone();
         tokio::spawn(async move {
@@ -313,8 +311,9 @@ pub fn wait(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             let _ = tx.send(count);
         });
 
+        // Short timeout for this fast path (50ms should be plenty)
         let count = rx
-            .recv_timeout(std::time::Duration::from_millis(100))
+            .recv_timeout(std::time::Duration::from_millis(50))
             .unwrap_or(0);
         return Ok(RespValue::Integer(count as i64));
     }

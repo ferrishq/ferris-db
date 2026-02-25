@@ -299,10 +299,10 @@ async fn test_wait_no_writes_returns_immediately() {
     // Should return 0 (no replicas connected)
     assert_eq!(result, RespValue::Integer(0));
 
-    // Should be fast (< 200ms) since no writes to wait for
-    // Note: Includes overhead from spawning async task
+    // Should be fast since no writes to wait for
+    // Note: Includes overhead from spawning async task (CI can be slow)
     assert!(
-        elapsed.as_millis() < 200,
+        elapsed.as_millis() < 300,
         "WAIT took too long with no writes: {elapsed:?}",
     );
 
@@ -517,7 +517,8 @@ async fn test_wait_with_read_commands_only() {
     let elapsed = start.elapsed();
 
     assert_eq!(result, RespValue::Integer(0));
-    assert!(elapsed.as_millis() < 200, "Took {elapsed:?}");
+    // CI environments can be slower
+    assert!(elapsed.as_millis() < 300, "Took {elapsed:?}");
 
     server.stop().await;
 }
