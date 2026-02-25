@@ -249,25 +249,111 @@ pub fn role(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
 /// WAIT numreplicas timeout
 ///
-/// Blocks until the specified number of replicas have acknowledged writes,
-/// or until timeout milliseconds have elapsed.
+/// Blocks until `numreplicas` replicas have acknowledged all prior write commands,
+/// or until `timeout` milliseconds elapse. Returns the number of replicas that
+/// acknowledged the writes.
 ///
 /// Time complexity: O(N) where N is the number of replicas
-pub fn wait(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+pub fn wait(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() != 2 {
         return Err(CommandError::WrongArity("WAIT".to_string()));
     }
 
-    let _numreplicas = parse_int(&args[0])?;
-    let _timeout = parse_int(&args[1])?;
+    let numreplicas = parse_int(&args[0])?;
+    let timeout_ms = parse_int(&args[1])?;
 
-    // TODO: Actual WAIT logic:
-    // 1. Track write commands with offsets
-    // 2. Wait for N replicas to ack offset
-    // 3. Return number of replicas that acked (may be < N if timeout)
+    // Validate arguments
+    if numreplicas < 0 {
+        return Err(CommandError::InvalidArgument(
+            "numreplicas must be non-negative".to_string(),
+        ));
+    }
+    if timeout_ms < 0 {
+        return Err(CommandError::InvalidArgument(
+            "timeout must be non-negative".to_string(),
+        ));
+    }
 
-    // For now, return 0 (no replicas)
-    Ok(RespValue::Integer(0))
+    let numreplicas = numreplicas as usize;
+
+    // If asking for 0 replicas, return immediately with 0
+    if numreplicas == 0 {
+        return Ok(RespValue::Integer(0));
+    }
+
+    // Get replication manager
+    let manager = match ctx.replication_manager() {
+        Some(m) => m,
+        None => {
+            // No replication configured - return 0
+            return Ok(RespValue::Integer(0));
+        }
+    };
+
+    // Get current replication offset
+    let current_offset = manager.state().master_repl_offset();
+
+    // If we're a follower, WAIT doesn't make sense (followers don't have replicas)
+    if !manager.state().is_master() {
+        // Return 0 for followers
+        return Ok(RespValue::Integer(0));
+    }
+
+    // Fast path: If no writes have occurred (offset == 0), return immediately
+    if current_offset == 0 {
+        // All replicas are trivially up-to-date with an empty replication stream
+        // Just return the current replica count
+        let follower_tracker = manager.follower_tracker();
+
+        // Use a blocking call to get follower count
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tracker = follower_tracker.clone();
+        tokio::spawn(async move {
+            let count = tracker.follower_count().await;
+            let _ = tx.send(count);
+        });
+
+        let count = rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .unwrap_or(0);
+        return Ok(RespValue::Integer(count as i64));
+    }
+
+    // Slow path: Need to wait for replicas to acknowledge writes
+    let follower_tracker = manager.follower_tracker().clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    // Spawn async task to wait for replicas
+    tokio::spawn(async move {
+        let timeout = if timeout_ms == 0 {
+            None // Wait forever
+        } else {
+            Some(std::time::Duration::from_millis(timeout_ms as u64))
+        };
+
+        // Wait for replicas
+        let count = follower_tracker
+            .wait_for_offset(numreplicas, current_offset, timeout)
+            .await as i64;
+
+        let _ = tx.send(count);
+    });
+
+    // Block synchronously waiting for the async result
+    // Add a small buffer to the timeout to allow the async task to complete
+    let recv_timeout = if timeout_ms == 0 {
+        std::time::Duration::from_secs(3600) // Very long for infinite wait
+    } else {
+        std::time::Duration::from_millis((timeout_ms + 50) as u64)
+    };
+
+    match rx.recv_timeout(recv_timeout) {
+        Ok(count) => Ok(RespValue::Integer(count)),
+        Err(_) => {
+            // Timeout or channel error - return 0
+            Ok(RespValue::Integer(0))
+        }
+    }
 }
 
 /// WAITAOF local_offset replica_offset timeout

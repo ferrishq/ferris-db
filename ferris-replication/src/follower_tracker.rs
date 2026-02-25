@@ -6,9 +6,10 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Notify, RwLock};
 use tracing::{debug, error, warn};
 
 /// A connected follower
@@ -22,20 +23,25 @@ pub struct FollowerConnection {
     tx: mpsc::UnboundedSender<Bytes>,
     /// The follower's last acknowledged offset
     offset: Arc<AtomicU64>,
+    /// Notifier to wake up WAIT commands when offset changes
+    /// Note: Stored but not directly accessed (used implicitly by Notify mechanism)
+    #[allow(dead_code)]
+    notify: Arc<Notify>,
 }
 
 impl FollowerConnection {
     /// Create a new follower connection
     ///
     /// Spawns a background task that writes commands to the TCP stream.
-    pub fn new(id: u64, stream: TcpStream) -> Self {
+    pub fn new(id: u64, stream: TcpStream, notify: Arc<Notify>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let offset = Arc::new(AtomicU64::new(0));
 
         // Spawn writer task
         let offset_clone = offset.clone();
+        let notify_clone = notify.clone();
         tokio::spawn(async move {
-            if let Err(e) = Self::writer_task(stream, rx, offset_clone).await {
+            if let Err(e) = Self::writer_task(stream, rx, offset_clone, notify_clone).await {
                 error!(follower_id = id, error = %e, "Follower writer task failed");
             }
         });
@@ -45,6 +51,7 @@ impl FollowerConnection {
             listening_port: None,
             tx,
             offset,
+            notify,
         }
     }
 
@@ -73,6 +80,7 @@ impl FollowerConnection {
         mut stream: TcpStream,
         mut rx: mpsc::UnboundedReceiver<Bytes>,
         offset: Arc<AtomicU64>,
+        notify: Arc<Notify>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         while let Some(data) = rx.recv().await {
             // Write data to stream
@@ -81,6 +89,9 @@ impl FollowerConnection {
 
             // Update offset
             offset.fetch_add(data.len() as u64, Ordering::Relaxed);
+
+            // Notify any waiting WAIT commands
+            notify.notify_waiters();
 
             debug!(bytes = data.len(), "Sent command to follower");
         }
@@ -93,9 +104,17 @@ impl FollowerConnection {
 static NEXT_FOLLOWER_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Tracks all connected followers
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FollowerTracker {
     followers: Arc<RwLock<HashMap<u64, FollowerConnection>>>,
+    /// Notifier for when follower offsets are updated (for WAIT command)
+    offset_notify: Arc<Notify>,
+}
+
+impl Default for FollowerTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FollowerTracker {
@@ -104,6 +123,7 @@ impl FollowerTracker {
     pub fn new() -> Self {
         Self {
             followers: Arc::new(RwLock::new(HashMap::new())),
+            offset_notify: Arc::new(Notify::new()),
         }
     }
 
@@ -112,7 +132,7 @@ impl FollowerTracker {
     /// Returns the follower ID
     pub async fn register_follower(&self, stream: TcpStream) -> u64 {
         let id = NEXT_FOLLOWER_ID.fetch_add(1, Ordering::Relaxed);
-        let follower = FollowerConnection::new(id, stream);
+        let follower = FollowerConnection::new(id, stream, self.offset_notify.clone());
 
         self.followers.write().await.insert(id, follower);
 
@@ -171,6 +191,78 @@ impl FollowerTracker {
     /// Get all follower IDs
     pub async fn follower_ids(&self) -> Vec<u64> {
         self.followers.read().await.keys().copied().collect()
+    }
+
+    /// Wait for at least `num_replicas` followers to reach the given offset
+    ///
+    /// Returns the number of replicas that reached the offset within the timeout.
+    /// If timeout is None, waits indefinitely.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_replicas` - Minimum number of replicas to wait for
+    /// * `offset` - The replication offset to wait for
+    /// * `timeout` - Maximum time to wait (None = wait forever)
+    pub async fn wait_for_offset(
+        &self,
+        num_replicas: usize,
+        offset: u64,
+        timeout: Option<Duration>,
+    ) -> usize {
+        // Quick check: if we have no followers, return immediately
+        if self.follower_count().await == 0 {
+            return 0;
+        }
+
+        // Quick check: if already enough replicas at offset, return immediately
+        let ready = self.count_replicas_at_offset(offset).await;
+        if ready >= num_replicas {
+            return ready;
+        }
+
+        // Need to wait - set up timeout if specified
+        let wait_fut = async {
+            loop {
+                // Wait for notification
+                self.offset_notify.notified().await;
+
+                // Check how many replicas have reached the offset
+                let ready = self.count_replicas_at_offset(offset).await;
+                if ready >= num_replicas {
+                    return ready;
+                }
+
+                // If we have no more followers, return what we have
+                if self.follower_count().await == 0 {
+                    return 0;
+                }
+            }
+        };
+
+        // Apply timeout if specified
+        match timeout {
+            Some(duration) => {
+                match tokio::time::timeout(duration, wait_fut).await {
+                    Ok(count) => count,
+                    Err(_) => {
+                        // Timeout - return current count
+                        self.count_replicas_at_offset(offset).await
+                    }
+                }
+            }
+            None => wait_fut.await,
+        }
+    }
+
+    /// Count how many followers have reached at least the given offset
+    pub async fn count_replicas_at_offset(&self, offset: u64) -> usize {
+        let followers = self.followers.read().await;
+        followers.values().filter(|f| f.offset() >= offset).count()
+    }
+
+    /// Notify waiting WAIT commands that offsets have been updated
+    pub fn notify_offset_updated(&self) {
+        self.offset_notify.notify_waiters();
     }
 }
 
