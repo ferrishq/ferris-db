@@ -77,6 +77,11 @@ pub fn replicaof(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
     if let Some(manager) = ctx.replication_manager() {
         let manager_clone = manager.clone();
         let host = host.to_string();
+        let store_clone = Arc::clone(ctx.store_arc());
+        let blocking_registry = Arc::clone(ctx.blocking_registry());
+        let pubsub_registry = Arc::clone(ctx.pubsub_registry_ref());
+        let aof_writer = ctx.aof_writer().cloned();
+        let replication_manager = ctx.replication_manager().cloned();
 
         // Spawn async task to start follower
         tokio::spawn(async move {
@@ -106,14 +111,75 @@ pub fn replicaof(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
             follower.start(config).await;
 
             // Spawn task to receive and process replication commands
-            // TODO: Apply these commands to the store
-            // For now, we just log them
+            // Apply commands to the store using the executor
             tokio::spawn(async move {
-                while let Some(cmd) = rx.recv().await {
-                    tracing::debug!("Received replication command: {:?}", cmd);
-                    // TODO: Apply command to store
-                    // This requires access to CommandExecutor and store
+                use crate::{CommandContext, CommandExecutor};
+                use bytes::Bytes;
+                use ferris_protocol::Command;
+
+                let executor = CommandExecutor::new();
+                let mut ctx = CommandContext::with_resources(
+                    store_clone,
+                    blocking_registry,
+                    pubsub_registry,
+                    aof_writer,
+                    replication_manager,
+                );
+
+                while let Some(repl_cmd) = rx.recv().await {
+                    match repl_cmd {
+                        ferris_replication::ReplicationCommand::Command(parts) => {
+                            if parts.is_empty() {
+                                tracing::warn!("Received empty command from leader");
+                                continue;
+                            }
+
+                            // Convert to Command struct
+                            let name = match std::str::from_utf8(&parts[0]) {
+                                Ok(s) => s.to_uppercase(),
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "Failed to parse command name");
+                                    continue;
+                                }
+                            };
+
+                            let args: Vec<Bytes> = parts.into_iter().skip(1).collect();
+
+                            let cmd = Command { name, args };
+
+                            tracing::debug!("Applying replicated command: {:?}", cmd.name);
+
+                            // Execute the command
+                            match executor.execute(&mut ctx, &cmd) {
+                                Ok(resp) => {
+                                    tracing::trace!("Command executed successfully: {:?}", resp);
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        error = %e,
+                                        command = %cmd.name,
+                                        "Failed to execute replicated command"
+                                    );
+                                }
+                            }
+                        }
+                        ferris_replication::ReplicationCommand::FullSyncStart {
+                            repl_id,
+                            offset,
+                        } => {
+                            tracing::info!(
+                                repl_id = %repl_id,
+                                offset = offset,
+                                "Full sync started"
+                            );
+                        }
+                        ferris_replication::ReplicationCommand::PartialSyncStart { repl_id } => {
+                            tracing::info!(repl_id = %repl_id, "Partial sync started");
+                        }
+                    }
                 }
+
+                tracing::info!("Replication command receiver stopped");
             });
         });
 

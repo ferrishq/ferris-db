@@ -152,10 +152,28 @@ impl CommandContext {
         &self.store
     }
 
+    /// Get an Arc clone of the key store
+    #[must_use]
+    pub fn store_arc(&self) -> &Arc<KeyStore> {
+        &self.store
+    }
+
     /// Get a reference to the blocking registry
     #[must_use]
     pub fn blocking_registry(&self) -> &Arc<BlockingRegistry> {
         &self.blocking_registry
+    }
+
+    /// Get a reference to the pub/sub registry
+    #[must_use]
+    pub fn pubsub_registry_ref(&self) -> &Arc<PubSubRegistry> {
+        &self.pubsub_registry
+    }
+
+    /// Get a reference to the AOF writer
+    #[must_use]
+    pub fn aof_writer(&self) -> Option<&Arc<AofWriter>> {
+        self.aof_writer.as_ref()
     }
 
     /// Get the currently selected database index
