@@ -868,6 +868,73 @@ async fn test_concurrent_incr() {
 - **New invariants**: Add to Architecture Invariants
 - **Common mistakes**: Add to Common Pitfalls
 
+### When to Update PERFORMANCE.md
+
+- **After running parity benchmarks**: Update benchmark results tables
+- **Adding new benchmark operations**: Add new rows to appropriate tables
+- **Performance improvements**: Update numbers and note the improvement
+- **New optimization areas identified**: Add to "Areas for Optimization" section
+- **Environment changes**: Update test methodology section
+
+**Note**: Only update PERFORMANCE.md after actually running benchmarks with:
+```bash
+./target/release/parity-tests --benchmark
+# or
+./target/release/parity-tests --bench-only
+```
+
+### When to Update parity-tests/PARITY_RESULTS.md
+
+- **After running parity tests**: Update pass rate and test count
+- **Adding new parity tests**: Add command to appropriate category table
+- **New command category**: Add new section with table
+- **Test methodology changes**: Update Notes section
+
+**Note**: Only update PARITY_RESULTS.md after actually running parity tests with:
+```bash
+./target/release/parity-tests
+```
+
+### Document Update Workflow for New Commands
+
+When implementing a new command, follow this documentation workflow:
+
+1. **During Implementation** (no doc updates yet):
+   - Write the command handler
+   - Write unit tests in ferris-commands
+   - Register command in registry.rs
+   - Update ROADMAP.md to check off the command
+
+2. **After Running Parity Tests** (update docs):
+   ```bash
+   # Run parity tests against Redis
+   ./target/release/parity-tests
+   ```
+   - Update `parity-tests/PARITY_RESULTS.md`:
+     - Update total test count in header
+     - Add command to appropriate category table
+     - Update test history table
+
+3. **After Running Benchmarks** (update docs):
+   ```bash
+   # Run benchmarks
+   ./target/release/parity-tests --benchmark
+   ```
+   - Update `PERFORMANCE.md` if the new command affects performance:
+     - Add new operation to benchmark tables (if benchmarked)
+     - Update summary statistics if averages changed significantly
+
+### Key Documentation Files
+
+| File | Purpose | Update Trigger |
+|------|---------|----------------|
+| `ROADMAP.md` | Track implementation progress | Command implemented |
+| `DESIGN.md` | Architecture decisions | Design changes |
+| `AGENTS.md` | Development guidelines | Process changes |
+| `PERFORMANCE.md` | Benchmark results | After running benchmarks |
+| `parity-tests/PARITY_RESULTS.md` | Redis compatibility | After running parity tests |
+| `REDIS_COMMANDS.md` | Command coverage tracking | Command implemented |
+
 ---
 
 ## Common Pitfalls
