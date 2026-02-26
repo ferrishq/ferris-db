@@ -2,11 +2,13 @@
 
 > **Last Run**: February 2026  
 > **Overall Status**: PASSED  
-> **Pass Rate**: 100% (166/166 tests)
+> **Pass Rate**: 100% (290/290 tests)
 
 ## Summary
 
 This document tracks the parity between ferris-db and Redis. All commands listed below have been tested to produce identical results to Redis.
+
+**For performance benchmarks, see [PERFORMANCE.md](../PERFORMANCE.md)**
 
 ## Test Results by Category
 
@@ -143,6 +145,40 @@ This document tracks the parity between ferris-db and Redis. All commands listed
 | TIME | Returns array of 2 | ✅ |
 | DEBUG SLEEP | Handled gracefully | ✅ |
 
+### Edge Cases & Boundary Conditions (46/46 - 100%)
+
+| Category | Tests | Status |
+|----------|-------|--------|
+| Empty/Whitespace Keys & Values | 4 tests | ✅ |
+| Special Characters (Unicode, Binary) | 6 tests | ✅ |
+| Numeric Boundaries (Overflow, Underflow) | 5 tests | ✅ |
+| Wrong Arity Errors | 5 tests | ✅ |
+| Wrong Type Errors (WRONGTYPE) | 8 tests | ✅ |
+| Invalid Argument Errors | 6 tests | ✅ |
+| Large Data Handling | 5 tests | ✅ |
+| Expiry Edge Cases | 3 tests | ✅ |
+| Key Patterns | 2 tests | ✅ |
+| Type Overwrite Scenarios | 2 tests | ✅ |
+
+### Sorted Set Edge Cases (78/78 - 100%)
+
+| Category | Tests | Status |
+|----------|-------|--------|
+| Score Edge Cases (inf, -inf, precision, ties) | 9 tests | ✅ |
+| ZADD Options (NX, XX, GT, LT, CH) | 14 tests | ✅ |
+| Range by Index (negative, out of bounds) | 8 tests | ✅ |
+| Range by Score (inclusive, exclusive, LIMIT) | 8 tests | ✅ |
+| Rank Operations | 4 tests | ✅ |
+| Score Operations (ZSCORE, ZMSCORE) | 4 tests | ✅ |
+| Pop Operations (ZPOPMIN, ZPOPMAX, ZMPOP) | 7 tests | ✅ |
+| Remove Operations | 5 tests | ✅ |
+| Aggregate Operations (ZUNIONSTORE, ZINTERSTORE) | 8 tests | ✅ |
+| Lexicographic Operations | 6 tests | ✅ |
+| Random Member Operations | 3 tests | ✅ |
+| Empty/Nonexistent Key Operations | 2 tests | ✅ |
+
+---
+
 ## Commands Not Yet Tested
 
 The following command categories are implemented in ferris-db but not yet covered by parity tests:
@@ -155,13 +191,21 @@ The following command categories are implemented in ferris-db but not yet covere
 - **Geo**: GEOADD, GEODIST, GEOHASH, GEOPOS, etc.
 - **Cluster**: CLUSTER commands
 
+---
+
 ## Running the Tests
 
 ```bash
-# Option 1: Automated script
+# Option 1: Run parity tests only
+./target/release/parity-tests
+
+# Option 2: Run parity tests + performance benchmarks
+./target/release/parity-tests --benchmark
+
+# Option 3: Using the automated script
 ./scripts/run_parity_tests.sh
 
-# Option 2: Manual
+# Option 4: Manual setup
 # Terminal 1: Start Redis
 redis-server --port 6379
 
@@ -172,6 +216,8 @@ cargo run --release -p ferris-server -- --port 6380
 cargo run --release -p parity-tests
 ```
 
+---
+
 ## Notes
 
 1. **Float Comparisons**: INCRBYFLOAT and HINCRBYFLOAT use numeric tolerance (0.0001) rather than exact string matching due to floating-point representation differences.
@@ -181,3 +227,14 @@ cargo run --release -p parity-tests
 3. **Random Operations**: SPOP and SRANDMEMBER verify that results are valid (correct type and count) rather than exact values.
 
 4. **TTL Tolerance**: TTL/PTTL comparisons allow ±2 seconds variance for timing-sensitive operations.
+
+5. **Scientific Notation**: Very small floats use decimal notation in tests to avoid string representation differences (1e-10 vs 0.0000000001).
+
+---
+
+## Test History
+
+| Date | Tests | Pass Rate | Notes |
+|------|-------|-----------|-------|
+| Feb 2026 | 290 | 100% | Added edge cases + sorted set edge cases |
+| Feb 2026 | 166 | 100% | Initial test suite |
