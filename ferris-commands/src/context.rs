@@ -47,6 +47,9 @@ pub struct CommandContext {
     applying_replication: bool,
     /// Current command name being executed (for propagation)
     current_command: Option<String>,
+    /// ASKING flag - allows client to access slot being migrated
+    /// Set by ASKING command, cleared after next command
+    asking: bool,
 }
 
 impl CommandContext {
@@ -72,6 +75,7 @@ impl CommandContext {
             transaction_state: TransactionState::new(),
             applying_replication: false,
             current_command: None,
+            asking: false,
         }
     }
 
@@ -96,6 +100,7 @@ impl CommandContext {
             transaction_state: TransactionState::new(),
             applying_replication: false,
             current_command: None,
+            asking: false,
         }
     }
 
@@ -124,6 +129,7 @@ impl CommandContext {
             transaction_state: TransactionState::new(),
             applying_replication: false,
             current_command: None,
+            asking: false,
         }
     }
 
@@ -155,6 +161,7 @@ impl CommandContext {
             transaction_state: TransactionState::new(),
             applying_replication: false,
             current_command: None,
+            asking: false,
         }
     }
 
@@ -238,6 +245,23 @@ impl CommandContext {
         self.protocol_version = version;
     }
 
+    /// Check if ASKING flag is set (for cluster slot migration)
+    #[must_use]
+    pub const fn is_asking(&self) -> bool {
+        self.asking
+    }
+
+    /// Set ASKING flag (for cluster slot migration)
+    /// The flag is automatically cleared after the next command
+    pub fn set_asking(&mut self, asking: bool) {
+        self.asking = asking;
+    }
+
+    /// Clear ASKING flag (called after each command)
+    pub fn clear_asking(&mut self) {
+        self.asking = false;
+    }
+
     /// Reset connection state to defaults (for RESET command)
     pub fn reset(&mut self) {
         self.selected_db = 0;
@@ -245,6 +269,7 @@ impl CommandContext {
         self.client_name = None;
         self.protocol_version = 2;
         self.transaction_state = TransactionState::new();
+        self.asking = false;
     }
 
     /// Get a reference to the transaction state

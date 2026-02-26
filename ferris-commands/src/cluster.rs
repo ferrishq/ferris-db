@@ -161,6 +161,9 @@ pub fn cluster(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CommandContext;
+    use ferris_core::KeyStore;
+    use std::sync::Arc;
 
     #[test]
     fn test_crc16() {
@@ -240,6 +243,147 @@ mod tests {
         }
         // Should have good distribution (at least 500 unique slots for 1000 keys)
         assert!(slots.len() > 500);
+    }
+
+    #[test]
+    fn test_asking_command() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        // Initially, asking flag should be false
+        assert!(!ctx.is_asking());
+
+        // Execute ASKING command
+        let result = asking(&mut ctx, &[]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RespValue::ok());
+
+        // After ASKING, flag should be set
+        assert!(ctx.is_asking());
+    }
+
+    #[test]
+    fn test_asking_wrong_arity() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        // ASKING should not accept arguments
+        let result = asking(&mut ctx, &[RespValue::BulkString("extra".into())]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_asking_flag_cleared() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        // Set asking flag
+        ctx.set_asking(true);
+        assert!(ctx.is_asking());
+
+        // Clear asking flag
+        ctx.clear_asking();
+        assert!(!ctx.is_asking());
+    }
+
+    #[test]
+    fn test_migrate_basic_parsing() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        // Basic MIGRATE command should parse without error
+        // MIGRATE host port key destination-db timeout
+        let result = migrate(
+            &mut ctx,
+            &[
+                RespValue::BulkString("127.0.0.1".into()),
+                RespValue::BulkString("6380".into()),
+                RespValue::BulkString("mykey".into()),
+                RespValue::BulkString("0".into()),
+                RespValue::BulkString("5000".into()),
+            ],
+        );
+
+        // Should return NotImplemented for now
+        assert!(result.is_err());
+        match result {
+            Err(CommandError::NotImplemented(_)) => (),
+            _ => panic!("Expected NotImplemented error"),
+        }
+    }
+
+    #[test]
+    fn test_migrate_wrong_arity() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        // Too few arguments
+        let result = migrate(&mut ctx, &[RespValue::BulkString("host".into())]);
+        assert!(result.is_err());
+        match result {
+            Err(CommandError::WrongArity(_)) => (),
+            _ => panic!("Expected WrongArity error"),
+        }
+    }
+
+    #[test]
+    fn test_migrate_with_copy_flag() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let result = migrate(
+            &mut ctx,
+            &[
+                RespValue::BulkString("127.0.0.1".into()),
+                RespValue::BulkString("6380".into()),
+                RespValue::BulkString("mykey".into()),
+                RespValue::BulkString("0".into()),
+                RespValue::BulkString("5000".into()),
+                RespValue::BulkString("COPY".into()),
+            ],
+        );
+
+        // Should parse COPY flag correctly and return NotImplemented
+        assert!(matches!(result, Err(CommandError::NotImplemented(_))));
+    }
+
+    #[test]
+    fn test_migrate_with_replace_flag() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let result = migrate(
+            &mut ctx,
+            &[
+                RespValue::BulkString("127.0.0.1".into()),
+                RespValue::BulkString("6380".into()),
+                RespValue::BulkString("mykey".into()),
+                RespValue::BulkString("0".into()),
+                RespValue::BulkString("5000".into()),
+                RespValue::BulkString("REPLACE".into()),
+            ],
+        );
+
+        assert!(matches!(result, Err(CommandError::NotImplemented(_))));
+    }
+
+    #[test]
+    fn test_migrate_invalid_port() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let result = migrate(
+            &mut ctx,
+            &[
+                RespValue::BulkString("127.0.0.1".into()),
+                RespValue::BulkString("invalid".into()), // Invalid port
+                RespValue::BulkString("mykey".into()),
+                RespValue::BulkString("0".into()),
+                RespValue::BulkString("5000".into()),
+            ],
+        );
+
+        assert!(matches!(result, Err(CommandError::InvalidArgument(_))));
     }
 }
 
@@ -371,6 +515,149 @@ pub fn cluster_meet(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandRes
     // For now, cluster mode is not fully implemented
     Err(CommandError::InvalidArgument(
         "Cluster mode is not enabled. Use standalone or replication mode.".to_string(),
+    ))
+}
+
+/// ASKING
+///
+/// Tells the cluster node that the client is about to query a slot that is being migrated.
+/// This is used during slot migration to allow temporary access to a slot that is being moved.
+///
+/// The ASKING flag is cleared automatically after the next command.
+///
+/// Time complexity: O(1)
+pub fn asking(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if !args.is_empty() {
+        return Err(CommandError::WrongArity("ASKING".to_string()));
+    }
+
+    // Set the ASKING flag on this connection
+    ctx.set_asking(true);
+
+    Ok(RespValue::ok())
+}
+
+/// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [AUTH2 username password] [KEYS key [key ...]]
+///
+/// Atomically transfer a key from a source Redis instance to a destination instance.
+/// This is used for slot migration in Redis Cluster.
+///
+/// Time complexity: O(N) where N is the number of keys to migrate
+pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    // Minimum: MIGRATE host port key destination-db timeout
+    if args.len() < 5 {
+        return Err(CommandError::WrongArity("MIGRATE".to_string()));
+    }
+
+    let host = args[0]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid host".to_string()))?;
+
+    let port_str = args[1]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid port".to_string()))?;
+    let port: u16 = port_str
+        .parse()
+        .map_err(|_| CommandError::InvalidArgument("invalid port number".to_string()))?;
+
+    let key_arg = args[2]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid key".to_string()))?;
+
+    let db_str = args[3]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid destination-db".to_string()))?;
+    let destination_db: usize = db_str
+        .parse()
+        .map_err(|_| CommandError::InvalidArgument("invalid destination-db number".to_string()))?;
+
+    let timeout_str = args[4]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid timeout".to_string()))?;
+    let _timeout: u64 = timeout_str
+        .parse()
+        .map_err(|_| CommandError::InvalidArgument("invalid timeout number".to_string()))?;
+
+    // Parse optional flags
+    let mut copy = false;
+    let mut replace = false;
+    let mut keys_to_migrate: Vec<bytes::Bytes> = Vec::new();
+
+    let mut i = 5;
+    while i < args.len() {
+        let flag = args[i]
+            .as_str()
+            .ok_or_else(|| CommandError::InvalidArgument("invalid argument".to_string()))?
+            .to_uppercase();
+
+        match flag.as_str() {
+            "COPY" => {
+                copy = true;
+                i += 1;
+            }
+            "REPLACE" => {
+                replace = true;
+                i += 1;
+            }
+            "AUTH" => {
+                if i + 1 >= args.len() {
+                    return Err(CommandError::Syntax);
+                }
+                // Parse password but don't use it yet (TODO: implement authentication)
+                let _password = args[i + 1]
+                    .as_str()
+                    .ok_or_else(|| CommandError::InvalidArgument("invalid password".to_string()))?;
+                i += 2;
+            }
+            "AUTH2" => {
+                // AUTH2 username password
+                if i + 2 >= args.len() {
+                    return Err(CommandError::Syntax);
+                }
+                i += 3;
+            }
+            "KEYS" => {
+                // KEYS key [key ...]
+                i += 1;
+                while i < args.len() {
+                    let key = args[i]
+                        .as_bytes()
+                        .ok_or_else(|| CommandError::InvalidArgument("invalid key".to_string()))?
+                        .clone();
+                    keys_to_migrate.push(key);
+                    i += 1;
+                }
+            }
+            _ => {
+                return Err(CommandError::InvalidArgument(format!(
+                    "unknown option '{flag}'"
+                )));
+            }
+        }
+    }
+
+    // If no KEYS option, use the single key argument
+    if keys_to_migrate.is_empty() {
+        if key_arg.is_empty() {
+            return Err(CommandError::InvalidArgument(
+                "empty key with no KEYS option".to_string(),
+            ));
+        }
+        keys_to_migrate.push(bytes::Bytes::from(key_arg.to_string()));
+    }
+
+    // For now, return a stub implementation
+    // TODO: Implement actual migration logic
+    // This would involve:
+    // 1. Serialize keys using DUMP
+    // 2. Connect to destination host:port
+    // 3. Send RESTORE commands
+    // 4. Delete keys from source (unless COPY flag)
+
+    let _ = (host, port, destination_db, copy, replace, keys_to_migrate);
+
+    Err(CommandError::NotImplemented(
+        "MIGRATE command is not yet fully implemented".to_string(),
     ))
 }
 

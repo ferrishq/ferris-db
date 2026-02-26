@@ -67,6 +67,14 @@ pub enum CommandError {
     #[error("READONLY You can't write against a read only replica.")]
     ReadOnly,
 
+    /// Command not yet implemented
+    #[error("ERR {0}")]
+    NotImplemented(String),
+
+    /// Syntax error (generic)
+    #[error("ERR syntax error")]
+    Syntax,
+
     /// Blocking command needs to wait for data.
     /// This is not a real error — it signals the connection handler
     /// to block until data becomes available or timeout expires.

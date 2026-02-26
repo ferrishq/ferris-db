@@ -1136,6 +1136,14 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         cmd("CLUSTER", -2, read_flags(), crate::cluster::cluster),
     );
     registry.register(
+        "ASKING",
+        cmd("ASKING", 1, fast_read_flags(), crate::cluster::asking),
+    );
+    registry.register(
+        "MIGRATE",
+        cmd("MIGRATE", -6, write_flags(), crate::cluster::migrate),
+    );
+    registry.register(
         "PSYNC",
         cmd("PSYNC", 3, admin_flags(), crate::replication::psync),
     );
