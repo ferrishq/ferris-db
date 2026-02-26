@@ -192,6 +192,10 @@ pub struct ClusterState {
     pub nodes: HashMap<NodeId, ClusterNode>,
     /// Slot to node ID mapping
     pub slot_map: HashMap<u16, NodeId>,
+    /// Slots being migrated OUT from this node (slot -> target node)
+    pub migrating_slots: HashMap<u16, NodeId>,
+    /// Slots being imported INTO this node (slot -> source node)
+    pub importing_slots: HashMap<u16, NodeId>,
     /// Whether cluster mode is enabled
     pub enabled: bool,
     /// Current cluster epoch
@@ -214,6 +218,8 @@ impl ClusterState {
             my_id,
             nodes,
             slot_map: HashMap::new(),
+            migrating_slots: HashMap::new(),
+            importing_slots: HashMap::new(),
             enabled,
             current_epoch: 0,
             last_update: Instant::now(),
@@ -269,6 +275,107 @@ impl ClusterState {
     /// Get the node responsible for a slot
     pub fn get_slot_node(&self, slot: u16) -> Option<&NodeId> {
         self.slot_map.get(&slot)
+    }
+
+    /// Mark a slot as being migrated to another node
+    ///
+    /// This is used when this node is migrating a slot to another node.
+    /// While in this state, if a key doesn't exist locally, return ASK redirect.
+    pub fn set_slot_migrating(&mut self, slot: u16, target_node: NodeId) -> Result<(), String> {
+        // Check we currently own this slot
+        if let Some(owner) = self.slot_map.get(&slot) {
+            if owner != &self.my_id {
+                return Err(format!(
+                    "Can't migrate slot {slot}: owned by {owner}, not by us"
+                ));
+            }
+        } else {
+            return Err(format!("Can't migrate slot {slot}: not assigned"));
+        }
+
+        // Check target node exists
+        if !self.nodes.contains_key(&target_node) {
+            return Err(format!("Target node {target_node} not found"));
+        }
+
+        self.migrating_slots.insert(slot, target_node);
+        self.last_update = Instant::now();
+        Ok(())
+    }
+
+    /// Mark a slot as being imported from another node
+    ///
+    /// This is used when this node is importing a slot from another node.
+    /// While in this state, accept commands with ASKING flag for this slot.
+    pub fn set_slot_importing(&mut self, slot: u16, source_node: NodeId) -> Result<(), String> {
+        // Check source node exists
+        if !self.nodes.contains_key(&source_node) {
+            return Err(format!("Source node {source_node} not found"));
+        }
+
+        // Slot should not already be owned by us
+        if let Some(owner) = self.slot_map.get(&slot) {
+            if owner == &self.my_id {
+                return Err(format!("Can't import slot {slot}: already owned by us"));
+            }
+        }
+
+        self.importing_slots.insert(slot, source_node);
+        self.last_update = Instant::now();
+        Ok(())
+    }
+
+    /// Mark a slot as stable (not migrating or importing)
+    pub fn set_slot_stable(&mut self, slot: u16) {
+        self.migrating_slots.remove(&slot);
+        self.importing_slots.remove(&slot);
+        self.last_update = Instant::now();
+    }
+
+    /// Assign a slot to a specific node (complete migration)
+    ///
+    /// This is the final step after migration - assigns slot ownership
+    /// and clears any migration state.
+    pub fn set_slot_node(&mut self, slot: u16, node_id: &NodeId) -> Result<(), String> {
+        // Check node exists
+        if !self.nodes.contains_key(node_id) {
+            return Err(format!("Node {node_id} not found"));
+        }
+
+        // Assign the slot
+        self.slot_map.insert(slot, node_id.clone());
+
+        // Update node's slot list
+        if let Some(node) = self.nodes.get_mut(node_id) {
+            node.slots.insert(slot);
+        }
+
+        // Clear migration state
+        self.migrating_slots.remove(&slot);
+        self.importing_slots.remove(&slot);
+
+        self.last_update = Instant::now();
+        Ok(())
+    }
+
+    /// Check if a slot is being migrated out from this node
+    pub fn is_slot_migrating(&self, slot: u16) -> bool {
+        self.migrating_slots.contains_key(&slot)
+    }
+
+    /// Check if a slot is being imported into this node
+    pub fn is_slot_importing(&self, slot: u16) -> bool {
+        self.importing_slots.contains_key(&slot)
+    }
+
+    /// Get the target node for a migrating slot
+    pub fn get_migrating_target(&self, slot: u16) -> Option<&NodeId> {
+        self.migrating_slots.get(&slot)
+    }
+
+    /// Get the source node for an importing slot
+    pub fn get_importing_source(&self, slot: u16) -> Option<&NodeId> {
+        self.importing_slots.get(&slot)
     }
 
     /// Get cluster info string (for CLUSTER INFO command)
@@ -523,5 +630,139 @@ mod tests {
         assert!(nodes.contains("node1"));
         assert!(nodes.contains("127.0.0.1:6379"));
         assert!(nodes.contains("myself,master"));
+    }
+
+    // Tests for slot migration state
+    #[test]
+    fn test_set_slot_migrating() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+
+        // Assign slot to node1
+        state.assign_slots(&"node1".to_string(), &[100]).unwrap();
+
+        // Mark slot as migrating to node2
+        let result = state.set_slot_migrating(100, "node2".to_string());
+        assert!(result.is_ok());
+        assert!(state.is_slot_migrating(100));
+        assert_eq!(state.get_migrating_target(100), Some(&"node2".to_string()));
+    }
+
+    #[test]
+    fn test_set_slot_migrating_not_owned() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node and assign slot to it
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+        state.assign_slots(&"node2".to_string(), &[100]).unwrap();
+
+        // Try to migrate slot we don't own
+        let result = state.set_slot_migrating(100, "node2".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_slot_importing() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+
+        // Mark slot as importing from node2
+        let result = state.set_slot_importing(100, "node2".to_string());
+        assert!(result.is_ok());
+        assert!(state.is_slot_importing(100));
+        assert_eq!(state.get_importing_source(100), Some(&"node2".to_string()));
+    }
+
+    #[test]
+    fn test_set_slot_importing_already_owned() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+
+        // Assign slot to ourselves
+        state.assign_slots(&"node1".to_string(), &[100]).unwrap();
+
+        // Try to import slot we already own
+        let result = state.set_slot_importing(100, "node2".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_slot_stable() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+
+        // Set up migration state
+        state.assign_slots(&"node1".to_string(), &[100]).unwrap();
+        state.set_slot_migrating(100, "node2".to_string()).unwrap();
+
+        // Mark slot as stable
+        state.set_slot_stable(100);
+        assert!(!state.is_slot_migrating(100));
+        assert!(!state.is_slot_importing(100));
+    }
+
+    #[test]
+    fn test_set_slot_node() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+
+        // Assign slot to node2
+        let result = state.set_slot_node(100, &"node2".to_string());
+        assert!(result.is_ok());
+        assert_eq!(state.get_slot_node(100), Some(&"node2".to_string()));
+
+        // Check node's slot list updated
+        let node = state.nodes.get(&"node2".to_string()).unwrap();
+        assert!(node.slots.contains(&100));
+    }
+
+    #[test]
+    fn test_set_slot_node_clears_migration_state() {
+        let addr = "127.0.0.1:6379".parse().unwrap();
+        let mut state = ClusterState::new("node1".to_string(), addr, true);
+
+        // Add another node
+        let addr2 = "127.0.0.1:6380".parse().unwrap();
+        let node2 = ClusterNode::new("node2".to_string(), addr2, true);
+        state.add_node(node2);
+
+        // Set up migration state
+        state.assign_slots(&"node1".to_string(), &[100]).unwrap();
+        state.set_slot_migrating(100, "node2".to_string()).unwrap();
+
+        // Complete migration by assigning to node2
+        state.set_slot_node(100, &"node2".to_string()).unwrap();
+
+        // Migration state should be cleared
+        assert!(!state.is_slot_migrating(100));
+        assert!(!state.is_slot_importing(100));
     }
 }

@@ -7,6 +7,7 @@
 #![allow(rustdoc::invalid_html_tags)]
 #![deny(unsafe_code)]
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(clippy::large_stack_arrays)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::missing_errors_doc)]

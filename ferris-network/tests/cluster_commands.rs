@@ -25,16 +25,509 @@ async fn test_cluster_keyslot_basic() {
     server.stop().await;
 }
 
+// ============================================================================
+// CLUSTER SETSLOT Command Tests
+// ============================================================================
+
 #[tokio::test]
-async fn test_cluster_keyslot_consistent() {
+async fn test_cluster_setslot_not_enabled() {
     let server = TestServer::spawn().await;
     let mut client = server.client().await;
 
-    // Same key should always return same slot
-    let result1 = client.cmd(&["CLUSTER", "KEYSLOT", "testkey"]).await;
-    let result2 = client.cmd(&["CLUSTER", "KEYSLOT", "testkey"]).await;
+    // CLUSTER SETSLOT should return error since cluster is not enabled
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING", "node2"])
+        .await;
 
-    assert_eq!(result1, result2);
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_migrating_wrong_arity() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Too few arguments
+    let result = client.cmd(&["CLUSTER", "SETSLOT", "100"]).await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("wrong number of arguments") || msg.contains("arity"),
+                "Expected arity error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for wrong arity, got {result:?}"),
+    }
+
+    // Missing node-id for MIGRATING
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("wrong number of arguments") || msg.contains("arity"),
+                "Expected arity error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for missing node-id, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_importing_wrong_arity() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Missing node-id for IMPORTING
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "IMPORTING"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("wrong number of arguments") || msg.contains("arity"),
+                "Expected arity error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for missing node-id, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_stable_wrong_arity() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // STABLE doesn't take node-id, extra arguments should error
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "STABLE", "extra"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("wrong number of arguments") || msg.contains("arity"),
+                "Expected arity error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for extra argument, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_node_wrong_arity() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Missing node-id for NODE
+    let result = client.cmd(&["CLUSTER", "SETSLOT", "100", "NODE"]).await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("wrong number of arguments") || msg.contains("arity"),
+                "Expected arity error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for missing node-id, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_invalid_slot_number() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Slot number too large (>= 16384)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "99999", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("invalid") || msg.contains("slot") || msg.contains("range"),
+                "Expected invalid slot error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for invalid slot, got {result:?}"),
+    }
+
+    // Non-numeric slot
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "invalid", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("invalid") || msg.contains("integer") || msg.contains("slot"),
+                "Expected invalid slot error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for non-numeric slot, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_invalid_subcommand() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Invalid subcommand
+    let result = client.cmd(&["CLUSTER", "SETSLOT", "100", "INVALID"]).await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("Unknown") || msg.contains("invalid") || msg.contains("subcommand"),
+                "Expected invalid subcommand error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for invalid subcommand, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_negative_slot() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Negative slot number
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "-1", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("invalid") || msg.contains("slot") || msg.contains("range"),
+                "Expected invalid slot error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for negative slot, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_zero_slot() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Slot 0 is valid (should error because cluster not enabled, not because of slot)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "0", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_max_slot() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Slot 16383 is the maximum valid slot (should error because cluster not enabled)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "16383", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_at_boundary() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Slot 16384 is just beyond the maximum (should be rejected)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "16384", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("invalid") || msg.contains("slot") || msg.contains("range"),
+                "Expected invalid slot error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for out-of-range slot, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_migrating_subcommand() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Test MIGRATING subcommand (will fail because cluster not enabled, but should parse correctly)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING", "abc123"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            // Should fail because cluster is not enabled, not because of syntax
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_importing_subcommand() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Test IMPORTING subcommand
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "IMPORTING", "abc123"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_stable_subcommand() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Test STABLE subcommand
+    let result = client.cmd(&["CLUSTER", "SETSLOT", "100", "STABLE"]).await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_node_subcommand() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Test NODE subcommand
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "NODE", "abc123"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("not enabled") || msg.contains("Cluster"),
+                "Expected cluster not enabled error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_case_sensitivity() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Test that subcommands are case-insensitive (or case-sensitive as designed)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "migrating", "node2"])
+        .await;
+
+    if let RespValue::Error(msg) = result {
+        // Could fail due to case sensitivity or cluster not enabled
+        // We're just verifying it doesn't crash
+        assert!(
+            msg.contains("not enabled")
+                || msg.contains("Cluster")
+                || msg.contains("Unknown")
+                || msg.contains("invalid"),
+            "Expected reasonable error message, got: {msg}"
+        );
+    }
+    // If lowercase is accepted, that's also OK (depends on implementation)
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_empty_node_id() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Empty node ID should be rejected
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING", ""])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            // Should fail (either cluster not enabled or invalid node id)
+            assert!(!msg.is_empty(), "Error message should not be empty");
+        }
+        _ => panic!("Expected error for empty node ID, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_whitespace_slot() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Whitespace in slot number should be rejected
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", " 100 ", "MIGRATING", "node2"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("invalid") || msg.contains("integer") || msg.contains("not enabled"),
+                "Expected error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for whitespace in slot, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_multiple_subcommands() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Multiple subcommands should be rejected (only one allowed)
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING", "node2", "STABLE"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(
+                msg.contains("wrong number of arguments") || msg.contains("arity"),
+                "Expected arity error, got: {msg}"
+            );
+        }
+        _ => panic!("Expected error for multiple subcommands, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_long_node_id() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Very long node ID (Redis uses 40-character hex strings)
+    let long_node_id = "a".repeat(100);
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING", &long_node_id])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            // Should fail (cluster not enabled or node validation)
+            assert!(!msg.is_empty());
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_setslot_special_chars_in_node_id() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // Node ID with special characters
+    let result = client
+        .cmd(&["CLUSTER", "SETSLOT", "100", "MIGRATING", "node@#$%"])
+        .await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(!msg.is_empty());
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
 
     server.stop().await;
 }

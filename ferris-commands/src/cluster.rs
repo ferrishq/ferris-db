@@ -1065,6 +1065,137 @@ pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     ))
 }
 
+/// CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE node-id
+///
+/// Manages slot migration states in cluster mode.
+///
+/// Subcommands:
+/// - MIGRATING node-id: Mark slot as migrating to target node
+/// - IMPORTING node-id: Mark slot as importing from source node
+/// - STABLE: Clear any migration state for the slot
+/// - NODE node-id: Assign slot to node and clear migration state
+///
+/// Time complexity: O(1)
+pub fn cluster_setslot(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    // Minimum: CLUSTER SETSLOT slot subcommand
+    if args.len() < 2 {
+        return Err(CommandError::WrongArity("CLUSTER SETSLOT".to_string()));
+    }
+
+    // Parse slot number
+    let slot_str = args[0]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid slot number".to_string()))?;
+    let slot: u16 = slot_str
+        .parse()
+        .map_err(|_| CommandError::InvalidArgument(format!("invalid slot number: {slot_str}")))?;
+
+    // Validate slot range (0-16383)
+    if slot >= ferris_replication::cluster::CLUSTER_SLOTS {
+        return Err(CommandError::InvalidArgument(format!(
+            "invalid slot number: {slot} (must be 0-16383)"
+        )));
+    }
+
+    // Parse subcommand
+    let subcommand = args[1]
+        .as_str()
+        .ok_or_else(|| CommandError::InvalidArgument("invalid subcommand".to_string()))?
+        .to_uppercase();
+
+    // Validate arity based on subcommand (before checking cluster mode)
+    match subcommand.as_str() {
+        "MIGRATING" | "IMPORTING" | "NODE" => {
+            if args.len() != 3 {
+                return Err(CommandError::WrongArity(format!(
+                    "CLUSTER SETSLOT {subcommand}"
+                )));
+            }
+        }
+        "STABLE" => {
+            if args.len() != 2 {
+                return Err(CommandError::WrongArity(
+                    "CLUSTER SETSLOT STABLE".to_string(),
+                ));
+            }
+        }
+        _ => {
+            return Err(CommandError::InvalidArgument(format!(
+                "Unknown CLUSTER SETSLOT subcommand '{subcommand}'. Expected MIGRATING, IMPORTING, STABLE, or NODE"
+            )));
+        }
+    }
+
+    // Get cluster manager (after arity validation)
+    let Some(cluster_mgr) = ctx.cluster_manager() else {
+        return Err(CommandError::InvalidArgument(
+            "Cluster mode is not enabled".to_string(),
+        ));
+    };
+
+    match subcommand.as_str() {
+        "MIGRATING" => {
+            let target_node = args[2]
+                .as_str()
+                .ok_or_else(|| CommandError::InvalidArgument("invalid node id".to_string()))?
+                .to_string();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let mut state = cluster_mgr.state_mut().await;
+                    state.set_slot_migrating(slot, target_node)
+                })
+            })
+            .map_err(CommandError::InvalidArgument)?;
+
+            Ok(RespValue::ok())
+        }
+        "IMPORTING" => {
+            let source_node = args[2]
+                .as_str()
+                .ok_or_else(|| CommandError::InvalidArgument("invalid node id".to_string()))?
+                .to_string();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let mut state = cluster_mgr.state_mut().await;
+                    state.set_slot_importing(slot, source_node)
+                })
+            })
+            .map_err(CommandError::InvalidArgument)?;
+
+            Ok(RespValue::ok())
+        }
+        "STABLE" => {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let mut state = cluster_mgr.state_mut().await;
+                    state.set_slot_stable(slot);
+                });
+            });
+
+            Ok(RespValue::ok())
+        }
+        "NODE" => {
+            let node_id = args[2]
+                .as_str()
+                .ok_or_else(|| CommandError::InvalidArgument("invalid node id".to_string()))?
+                .to_string();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let mut state = cluster_mgr.state_mut().await;
+                    state.set_slot_node(slot, &node_id)
+                })
+            })
+            .map_err(CommandError::InvalidArgument)?;
+
+            Ok(RespValue::ok())
+        }
+        _ => unreachable!("Subcommand validation should have caught invalid subcommands"),
+    }
+}
+
 /// Update cluster dispatch to handle new subcommands
 pub fn cluster_dispatch(
     ctx: &mut CommandContext,
@@ -1077,6 +1208,7 @@ pub fn cluster_dispatch(
         "NODES" => cluster_nodes(ctx, args),
         "SLOTS" => cluster_slots(ctx, args),
         "ADDSLOTS" => cluster_addslots(ctx, args),
+        "SETSLOT" => cluster_setslot(ctx, args),
         "MEET" => cluster_meet(ctx, args),
         _ => Err(CommandError::InvalidArgument(format!(
             "Unknown CLUSTER subcommand '{subcommand}'"

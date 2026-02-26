@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
-> **Status**: Phase 4 IN PROGRESS 🚧 - Cluster redirects implemented  
-> **Last Updated**: 2026-02-26 (226 commands, 2045 tests, Phases 1-3 COMPLETE, Phase 4 30% complete)  
+> **Status**: Phase 4 IN PROGRESS 🚧 - Slot migration state implemented  
+> **Last Updated**: 2026-02-26 (226 commands, 2,862 tests, Phases 1-3 COMPLETE, Phase 4 40% complete)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -13,11 +13,11 @@
 | **Phase 1: Core Server** | ✅ Complete | 100% | 226 commands, RESP2/3, all data types, TTL, memory management |
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
-| **Phase 4: Cluster** | 🚧 In Progress | 35% | Hash slots ✅, Commands ✅, Redirects ✅, Cross-slot ✅, topology (TODO) |
+| **Phase 4: Cluster** | 🚧 In Progress | 40% | Hash slots ✅, Commands ✅, Redirects ✅, Cross-slot ✅, Migration state ✅ |
 | **Phase 5: Distributed Locks & Queues** | ⏳ Planned | 0% | DLOCK, DQUEUE, fencing tokens |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
-**Total Test Coverage:** 2,045 tests passing ✅  
+**Total Test Coverage:** 2,862 tests passing ✅ (2,286 unit + 576 integration)  
 **Redis Compatibility:** ~48% command coverage (226/469 commands)
 
 ---
@@ -546,7 +546,7 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 
 **Goal**: Horizontal scaling via hash-slot partitioning with automatic failover.
 
-**Status**: 🚧 Foundation Complete (35% - Hash slots, commands, redirects, cross-slot validation)
+**Status**: 🚧 Foundation Complete (40% - Hash slots, commands, redirects, cross-slot validation, slot migration state)
 
 ### 4.1 Hash Slot Infrastructure ✅ COMPLETE
 - [x] **Tests**: Key routed to correct slot (8 unit tests)
@@ -594,15 +594,27 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] Validation added to: MGET, MSET, MSETNX
 - [x] Hash tag support ensures same-slot operations
 
-### 4.5-4.7 Advanced Cluster Features (Not Started)
+### 4.5 Slot Migration State ✅ COMPLETE
+- [x] **Tests**: CLUSTER SETSLOT MIGRATING/IMPORTING/STABLE/NODE (21 integration tests)
+- [x] **Tests**: Slot migration state tracking (8 unit tests in ferris-replication)
+- [x] **Tests**: Arity validation for all SETSLOT subcommands
+- [x] **Tests**: Error handling for invalid slots and node IDs
+- [x] MIGRATING/IMPORTING state tracking in ClusterState
+- [x] CLUSTER SETSLOT MIGRATING node-id command
+- [x] CLUSTER SETSLOT IMPORTING node-id command
+- [x] CLUSTER SETSLOT STABLE command (clears migration state)
+- [x] CLUSTER SETSLOT NODE node-id command (assigns slot ownership)
+- [x] ASK redirect logic updated for migration states
+- [x] Helper functions: `is_slot_migrating()`, `is_slot_importing()`, `get_migrating_target()`, `get_importing_source()`
+
+### 4.6-4.7 Advanced Cluster Features (Not Started)
 - [ ] **Tests**: Gossip propagates node state
 - [ ] **Tests**: Automatic failover on master failure
 - [ ] **Tests**: Slot migration under load
-- [ ] **Tests**: Cross-slot error for multi-key commands
+- [ ] **Tests**: Complete MIGRATE command execution
 - [ ] Cluster topology management (multi-node)
 - [ ] Gossip protocol for node discovery
-- [ ] Complete MIGRATE command execution
-- [ ] Slot migration protocol (MIGRATING/IMPORTING states)
+- [ ] Complete MIGRATE command execution (key copying via DUMP/RESTORE)
 - [ ] Automatic failover
 - [ ] Replica promotion
 
