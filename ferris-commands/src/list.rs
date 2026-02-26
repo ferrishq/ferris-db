@@ -88,9 +88,11 @@ pub fn lpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 // Key exists and not expired - modify in place
                 match &mut e.value {
                     RedisValue::List(list) => {
-                        // Pre-allocate additional capacity to avoid reallocation during push
-                        // This prevents the VecDeque from reallocating when growing
-                        list.reserve(elements.len());
+                        // Reserve extra capacity to reduce frequency of VecDeque reallocation
+                        // Reserve at least 32 elements to reduce amortized cost of incremental pushes
+                        // VecDeque can be inefficient with small incremental reserves due to ring buffer management
+                        let reserve_amount = elements.len().max(64);
+                        list.reserve(reserve_amount);
 
                         for elem in &elements {
                             list.push_front(elem.clone());
@@ -163,9 +165,11 @@ pub fn rpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 // Key exists and not expired - modify in place
                 match &mut e.value {
                     RedisValue::List(list) => {
-                        // Pre-allocate additional capacity to avoid reallocation during push
-                        // This prevents the VecDeque from reallocating when growing
-                        list.reserve(elements.len());
+                        // Reserve extra capacity to reduce frequency of VecDeque reallocation
+                        // Reserve at least 32 elements to reduce amortized cost of incremental pushes
+                        // VecDeque can be inefficient with small incremental reserves due to ring buffer management
+                        let reserve_amount = elements.len().max(64);
+                        list.reserve(reserve_amount);
 
                         for elem in &elements {
                             list.push_back(elem.clone());
