@@ -431,7 +431,8 @@ impl Clone for ClusterManager {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::all)]
-    
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     #[test]

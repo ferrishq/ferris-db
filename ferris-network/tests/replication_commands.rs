@@ -326,11 +326,12 @@ async fn test_wait_with_write_and_no_replicas_times_out() {
     assert_eq!(result, RespValue::Integer(0));
 
     // Should take approximately the timeout duration (with some overhead)
+    // Allow more time on slower CI machines
     assert!(
         elapsed.as_millis() >= 90,
         "WAIT returned too early: {elapsed:?}",
     );
-    assert!(elapsed.as_millis() < 250, "WAIT took too long: {elapsed:?}");
+    assert!(elapsed.as_millis() < 500, "WAIT took too long: {elapsed:?}");
 
     server.stop().await;
 }

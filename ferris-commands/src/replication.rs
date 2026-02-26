@@ -573,7 +573,7 @@ mod tests {
             pubsub_registry,
             None,
             Some(replication_manager),
-        None,
+            None,
         );
 
         let result = replicaof(
