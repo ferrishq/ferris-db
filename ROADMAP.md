@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
 > **Status**: Phase 4 IN PROGRESS 🚧 - Cluster foundation complete  
-> **Last Updated**: 2026-02-26 (227 commands, 2781 tests, Phases 1-3 COMPLETE, Phase 4 started)  
+> **Last Updated**: 2026-02-26 (226 commands, 2761 tests, Phases 1-3 COMPLETE, Phase 4 started)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -10,15 +10,15 @@
 
 | Phase | Status | Completion | Key Features |
 |-------|--------|------------|--------------|
-| **Phase 1: Core Server** | ✅ Complete | 100% | 225 commands, RESP2/3, all data types, TTL, memory management |
+| **Phase 1: Core Server** | ✅ Complete | 100% | 226 commands, RESP2/3, all data types, TTL, memory management |
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
 | **Phase 4: Cluster** | 🚧 In Progress | 20% | Hash slots ✅, CLUSTER commands ✅, topology (TODO) |
 | **Phase 5: Distributed Locks & Queues** | ⏳ Planned | 0% | DLOCK, DQUEUE, fencing tokens |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
-**Total Test Coverage:** 2,757 tests passing ✅  
-**Redis Compatibility:** ~48% command coverage (225/469 commands)
+**Total Test Coverage:** 2,761 tests passing ✅  
+**Redis Compatibility:** ~48% command coverage (226/469 commands)
 
 ---
 
