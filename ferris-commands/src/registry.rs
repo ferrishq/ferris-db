@@ -1111,6 +1111,12 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "WAITAOF",
         cmd("WAITAOF", 4, read_flags(), crate::replication::waitaof),
     );
+
+    // Cluster commands
+    registry.register(
+        "CLUSTER",
+        cmd("CLUSTER", -2, read_flags(), crate::cluster::cluster),
+    );
     registry.register(
         "PSYNC",
         cmd("PSYNC", 3, admin_flags(), crate::replication::psync),

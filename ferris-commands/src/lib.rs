@@ -98,6 +98,7 @@ pub mod registry;
 
 // Command modules
 pub mod acl;
+pub mod cluster;
 pub mod connection;
 pub mod geo;
 pub mod hash;
