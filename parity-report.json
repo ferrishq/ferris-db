@@ -1,0 +1,1822 @@
+{
+  "timestamp": "1772083326",
+  "total_tests": 290,
+  "passed": 290,
+  "failed": 0,
+  "categories": {
+    "Set Commands": {
+      "name": "Set Commands",
+      "tests": [
+        {
+          "name": "SADD",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SADD multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SADD duplicates",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SREM",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMEMBERS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SISMEMBER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMISMEMBER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SCARD",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SCARD nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SINTER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SUNION",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SDIFF",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SINTERSTORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SUNIONSTORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SDIFFSTORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SPOP",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SRANDMEMBER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMOVE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMOVE nonexistent member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SADD on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 20,
+      "failed": 0,
+      "duration_ms": 2
+    },
+    "Edge Cases & Boundary Conditions": {
+      "name": "Edge Cases & Boundary Conditions",
+      "tests": [
+        {
+          "name": "Empty string value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Empty key name",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Whitespace key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Whitespace value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Special chars in key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "Special chars in value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "Unicode key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "Unicode value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "Newline in value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Binary-safe value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "INCR overflow",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DECR underflow",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Large integer operations",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Negative integer operations",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Float special values",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "GET wrong arity",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SET wrong arity",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPUSH wrong arity",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSET wrong arity",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD wrong arity",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "String op on list",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "String op on set",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "String op on hash",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "String op on zset",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "List op on string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Set op on string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "Hash op on string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Zset op on string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "EXPIRE invalid time",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SETEX invalid time",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "INCR on non-integer string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "INCRBYFLOAT on non-float",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD invalid score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX invalid index",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Large value (1MB)",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "Many list elements",
+          "passed": true,
+          "error": null,
+          "duration_ms": 16
+        },
+        {
+          "name": "Many set members",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Many hash fields",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Many zset members",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIRE with zero",
+          "passed": true,
+          "error": null,
+          "duration_ms": 102
+        },
+        {
+          "name": "EXPIRE with negative",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "PEXPIRE with small value",
+          "passed": true,
+          "error": null,
+          "duration_ms": 53
+        },
+        {
+          "name": "KEYS with empty result",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "KEYS complex pattern",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "Delete during operations",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "Overwrite with different type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 4
+        }
+      ],
+      "passed": 46,
+      "failed": 0,
+      "duration_ms": 189
+    },
+    "Sorted Set Edge Cases": {
+      "name": "Sorted Set Edge Cases",
+      "tests": [
+        {
+          "name": "ZADD with +inf score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD with -inf score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "ZADD with zero score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD with negative scores",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "ZADD float precision",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD very small float",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD very large float",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD score ties (lexicographic)",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "ZINCRBY toward infinity",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD NX new member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD NX existing member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD XX new member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD XX existing member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD GT higher score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD GT lower score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD GT equal score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD LT higher score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD LT lower score",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD CH flag",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD INCR flag",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD NX XX conflict",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD GT LT conflict",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD combined options",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZRANGE empty set",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGE single element",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZRANGE negative indices",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZRANGE out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGE reverse indices (empty result)",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGE WITHSCORES",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREVRANGE basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGE with LIMIT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE inclusive",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE exclusive",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE mixed inclusive/exclusive",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE with inf",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE empty range",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE LIMIT OFFSET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREVRANGEBYSCORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZCOUNT various ranges",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZRANK first/last/middle",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANK nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREVRANK basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANK with score ties",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZSCORE existing",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZSCORE nonexistent member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZSCORE nonexistent key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZMSCORE multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMIN single",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMIN with count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMIN empty",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMIN count exceeds size",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMAX single",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMAX with count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZMPOP basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREM single",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREM multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREM nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREMRANGEBYRANK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREMRANGEBYSCORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZUNIONSTORE basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZUNIONSTORE WEIGHTS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZUNIONSTORE AGGREGATE SUM",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZUNIONSTORE AGGREGATE MIN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZUNIONSTORE AGGREGATE MAX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZINTERSTORE basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZINTERSTORE WEIGHTS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZINTERSTORE empty result",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZRANGEBYLEX basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYLEX inclusive",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYLEX exclusive",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYLEX unbounded",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZLEXCOUNT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREMRANGEBYLEX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANDMEMBER basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANDMEMBER with count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANDMEMBER WITHSCORES",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "Operations on empty zset",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "Zset ops on nonexistent key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        }
+      ],
+      "passed": 78,
+      "failed": 0,
+      "duration_ms": 22
+    },
+    "Sorted Set Commands": {
+      "name": "Sorted Set Commands",
+      "tests": [
+        {
+          "name": "ZADD",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD NX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD XX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZADD GT/LT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZREM",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZSCORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZSCORE nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "ZREVRANK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGE WITHSCORES",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZREVRANGE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZRANGEBYSCORE with -inf/+inf",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZCARD",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZCARD nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZCOUNT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZINCRBY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZINCRBY new member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMIN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZPOPMAX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ZADD on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 23,
+      "failed": 0,
+      "duration_ms": 4
+    },
+    "Key Commands": {
+      "name": "Key Commands",
+      "tests": [
+        {
+          "name": "DEL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DEL multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "DEL nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXISTS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXISTS multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIRE/TTL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIRE nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TTL no expire",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PEXPIRE/PTTL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIREAT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PERSIST",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PERSIST no TTL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE list",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE set",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE hash",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE zset",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "KEYS *",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "KEYS pattern",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAME",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAME overwrite",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAME nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAMENX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAMENX exists",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "COPY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "COPY REPLACE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "UNLINK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TOUCH",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 29,
+      "failed": 0,
+      "duration_ms": 2
+    },
+    "List Commands": {
+      "name": "List Commands",
+      "tests": [
+        {
+          "name": "LPUSH/RPUSH",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LPOP/RPOP",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LPOP/RPOP with count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LPOP/RPOP empty list",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LRANGE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LRANGE negative indices",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LRANGE out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LLEN nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX negative",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LSET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LSET out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LREM positive count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LREM negative count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LREM zero count (all)",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINSERT BEFORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINSERT AFTER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINSERT pivot not found",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LTRIM",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LTRIM negative indices",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOS not found",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOS with RANK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LMOVE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPUSHX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RPUSHX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LPUSH on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 29,
+      "failed": 0,
+      "duration_ms": 5
+    },
+    "String Commands": {
+      "name": "String Commands",
+      "tests": [
+        {
+          "name": "SET/GET basic",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "GET nonexistent key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SET overwrite",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SET EX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SET PX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SET NX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SET XX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "SET NX XX conflict",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SETNX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SETEX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "PSETEX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "GETEX EX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "GETEX PERSIST",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "GETDEL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "MSET/MGET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "MGET with missing keys",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "MSETNX success",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "MSETNX fail (key exists)",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "INCR",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "INCR new key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "INCR on non-integer",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "INCRBY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "INCRBYFLOAT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "DECR",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "DECRBY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "APPEND",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "APPEND to new key",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "STRLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "STRLEN nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "GETRANGE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "GETRANGE negative indices",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SETRANGE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SETRANGE with padding",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "GET on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "INCR on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 35,
+      "failed": 0,
+      "duration_ms": 31
+    },
+    "Hash Commands": {
+      "name": "Hash Commands",
+      "tests": [
+        {
+          "name": "HSET/HGET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSET multiple fields",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HGET nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HMSET/HMGET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HMGET with missing fields",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "HGETALL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HGETALL empty/nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HDEL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "HDEL multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HEXISTS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HLEN nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HKEYS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HVALS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HINCRBY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HINCRBY new field",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HINCRBYFLOAT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSETNX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSTRLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSET on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 20,
+      "failed": 0,
+      "duration_ms": 2
+    },
+    "Server Commands": {
+      "name": "Server Commands",
+      "tests": [
+        {
+          "name": "PING",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PING with message",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ECHO",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SELECT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "SELECT invalid",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DBSIZE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DBSIZE empty",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "FLUSHDB",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TIME",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DEBUG SLEEP",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 10,
+      "failed": 0,
+      "duration_ms": 1
+    }
+  },
+  "performance": null,
+  "duration_ms": 433
+}

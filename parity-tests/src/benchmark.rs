@@ -484,6 +484,213 @@ impl Benchmarker {
         let commands = vec![vec!["PING"]];
         self.run_comparison(redis, ferris, "PING", &commands).await
     }
+
+    /// Run MSET benchmark (multi-key write)
+    pub async fn bench_mset(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        let value = "x".repeat(self.config.value_size);
+        // MSET with 10 keys at once
+        let commands: Vec<Vec<&str>> = vec![vec![
+            "MSET",
+            Box::leak("mset:k1".to_string().into_boxed_str()),
+            Box::leak(value.clone().into_boxed_str()),
+            Box::leak("mset:k2".to_string().into_boxed_str()),
+            Box::leak(value.clone().into_boxed_str()),
+            Box::leak("mset:k3".to_string().into_boxed_str()),
+            Box::leak(value.clone().into_boxed_str()),
+            Box::leak("mset:k4".to_string().into_boxed_str()),
+            Box::leak(value.clone().into_boxed_str()),
+            Box::leak("mset:k5".to_string().into_boxed_str()),
+            Box::leak(value.clone().into_boxed_str()),
+        ]];
+        self.run_comparison(redis, ferris, "MSET (5 keys)", &commands)
+            .await
+    }
+
+    /// Run MGET benchmark (multi-key read)
+    pub async fn bench_mget(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        let value = "x".repeat(self.config.value_size);
+
+        // Setup: create keys
+        for i in 0..5 {
+            let key = format!("mget:k{}", i);
+            let _ = redis.cmd(&["SET", &key, &value]).await;
+            let _ = ferris.cmd(&["SET", &key, &value]).await;
+        }
+
+        let commands: Vec<Vec<&str>> = vec![vec![
+            "MGET",
+            Box::leak("mget:k0".to_string().into_boxed_str()),
+            Box::leak("mget:k1".to_string().into_boxed_str()),
+            Box::leak("mget:k2".to_string().into_boxed_str()),
+            Box::leak("mget:k3".to_string().into_boxed_str()),
+            Box::leak("mget:k4".to_string().into_boxed_str()),
+        ]];
+        self.run_comparison(redis, ferris, "MGET (5 keys)", &commands)
+            .await
+    }
+
+    /// Run LRANGE benchmark (list read)
+    pub async fn bench_lrange(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        // Setup: create a list with 100 elements
+        for i in 0..100 {
+            let val = format!("item{}", i);
+            let _ = redis.cmd(&["RPUSH", "bench:lrange", &val]).await;
+            let _ = ferris.cmd(&["RPUSH", "bench:lrange", &val]).await;
+        }
+
+        let commands: Vec<Vec<&str>> = vec![vec!["LRANGE", "bench:lrange", "0", "49"]];
+        self.run_comparison(redis, ferris, "LRANGE (50 items)", &commands)
+            .await
+    }
+
+    /// Run ZRANGE benchmark (sorted set read)
+    pub async fn bench_zrange(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        // Setup: create a sorted set with 100 elements
+        for i in 0..100 {
+            let score = format!("{}", i);
+            let member = format!("member{}", i);
+            let _ = redis.cmd(&["ZADD", "bench:zrange", &score, &member]).await;
+            let _ = ferris.cmd(&["ZADD", "bench:zrange", &score, &member]).await;
+        }
+
+        let commands: Vec<Vec<&str>> = vec![vec!["ZRANGE", "bench:zrange", "0", "49"]];
+        self.run_comparison(redis, ferris, "ZRANGE (50 items)", &commands)
+            .await
+    }
+
+    /// Run HGETALL benchmark (hash read all fields)
+    pub async fn bench_hgetall(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        let value = "x".repeat(self.config.value_size);
+
+        // Setup: create a hash with 50 fields
+        for i in 0..50 {
+            let field = format!("field{}", i);
+            let _ = redis.cmd(&["HSET", "bench:hgetall", &field, &value]).await;
+            let _ = ferris.cmd(&["HSET", "bench:hgetall", &field, &value]).await;
+        }
+
+        let commands: Vec<Vec<&str>> = vec![vec!["HGETALL", "bench:hgetall"]];
+        self.run_comparison(redis, ferris, "HGETALL (50 fields)", &commands)
+            .await
+    }
+
+    /// Run SMEMBERS benchmark (set read all members)
+    pub async fn bench_smembers(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        // Setup: create a set with 100 members
+        for i in 0..100 {
+            let member = format!("member{}", i);
+            let _ = redis.cmd(&["SADD", "bench:smembers", &member]).await;
+            let _ = ferris.cmd(&["SADD", "bench:smembers", &member]).await;
+        }
+
+        let commands: Vec<Vec<&str>> = vec![vec!["SMEMBERS", "bench:smembers"]];
+        self.run_comparison(redis, ferris, "SMEMBERS (100 members)", &commands)
+            .await
+    }
+
+    /// Run large value SET benchmark
+    pub async fn bench_set_large(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        // 10KB value
+        let large_value = "x".repeat(10 * 1024);
+        let commands: Vec<Vec<&str>> = vec![vec![
+            "SET",
+            Box::leak("bench:large".to_string().into_boxed_str()),
+            Box::leak(large_value.into_boxed_str()),
+        ]];
+        self.run_comparison(redis, ferris, "SET (10KB value)", &commands)
+            .await
+    }
+
+    /// Run large value GET benchmark
+    pub async fn bench_get_large(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        // Setup: create large value
+        let large_value = "x".repeat(10 * 1024);
+        let _ = redis.cmd(&["SET", "bench:getlarge", &large_value]).await;
+        let _ = ferris.cmd(&["SET", "bench:getlarge", &large_value]).await;
+
+        let commands: Vec<Vec<&str>> = vec![vec!["GET", "bench:getlarge"]];
+        self.run_comparison(redis, ferris, "GET (10KB value)", &commands)
+            .await
+    }
+
+    /// Run RPUSH benchmark (list append - different from LPUSH)
+    pub async fn bench_rpush(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        let value = "x".repeat(self.config.value_size);
+        let commands: Vec<Vec<&str>> = (0..10)
+            .map(|i| {
+                let key = format!("bench:rpush:{}", i);
+                vec!["RPUSH", Box::leak(key.into_boxed_str()), &value]
+            })
+            .collect();
+
+        let cmd_refs: Vec<Vec<&str>> = commands.iter().map(Vec::clone).collect();
+
+        self.run_comparison(redis, ferris, "RPUSH", &cmd_refs).await
+    }
+
+    /// Run LPOP benchmark
+    pub async fn bench_lpop(
+        &self,
+        redis: &mut ParityClient,
+        ferris: &mut ParityClient,
+    ) -> anyhow::Result<BenchmarkComparison> {
+        // Setup: create lists with items
+        for i in 0..10 {
+            let key = format!("bench:lpop:{}", i);
+            for j in 0..100 {
+                let val = format!("item{}", j);
+                let _ = redis.cmd(&["RPUSH", &key, &val]).await;
+                let _ = ferris.cmd(&["RPUSH", &key, &val]).await;
+            }
+        }
+
+        let commands: Vec<Vec<&str>> = (0..10)
+            .map(|i| {
+                let key = format!("bench:lpop:{}", i);
+                vec!["LPOP", Box::leak(key.into_boxed_str())]
+            })
+            .collect();
+
+        let cmd_refs: Vec<Vec<&str>> = commands.iter().map(Vec::clone).collect();
+
+        self.run_comparison(redis, ferris, "LPOP", &cmd_refs).await
+    }
 }
 
 /// Run all standard benchmarks and return comparisons
@@ -495,15 +702,37 @@ pub async fn run_all_benchmarks(
     let benchmarker = Benchmarker::new(config);
     let mut results = Vec::new();
 
-    // Run each benchmark
+    // Basic operations
     results.push(benchmarker.bench_ping(redis, ferris).await?);
     results.push(benchmarker.bench_set(redis, ferris).await?);
     results.push(benchmarker.bench_get(redis, ferris).await?);
     results.push(benchmarker.bench_incr(redis, ferris).await?);
+
+    // Multi-key operations
+    results.push(benchmarker.bench_mset(redis, ferris).await?);
+    results.push(benchmarker.bench_mget(redis, ferris).await?);
+
+    // List operations
     results.push(benchmarker.bench_lpush(redis, ferris).await?);
+    results.push(benchmarker.bench_rpush(redis, ferris).await?);
+    results.push(benchmarker.bench_lpop(redis, ferris).await?);
+    results.push(benchmarker.bench_lrange(redis, ferris).await?);
+
+    // Hash operations
     results.push(benchmarker.bench_hset(redis, ferris).await?);
+    results.push(benchmarker.bench_hgetall(redis, ferris).await?);
+
+    // Set operations
     results.push(benchmarker.bench_sadd(redis, ferris).await?);
+    results.push(benchmarker.bench_smembers(redis, ferris).await?);
+
+    // Sorted set operations
     results.push(benchmarker.bench_zadd(redis, ferris).await?);
+    results.push(benchmarker.bench_zrange(redis, ferris).await?);
+
+    // Large value operations
+    results.push(benchmarker.bench_set_large(redis, ferris).await?);
+    results.push(benchmarker.bench_get_large(redis, ferris).await?);
 
     Ok(results)
 }
