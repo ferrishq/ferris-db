@@ -61,6 +61,9 @@ rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 glob-match = "0.2"
 
+# Memory allocator
+tikv-jemallocator = "0.6"
+
 # Testing
 proptest = "1"
 criterion = "0.5"

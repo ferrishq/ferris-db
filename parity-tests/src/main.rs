@@ -13,6 +13,10 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::cast_possible_truncation)]
 
+// Use jemalloc for benchmarking (same as ferris-db server)
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use parity_tests::benchmark::{print_benchmark_summary, run_all_benchmarks, BenchmarkConfig};
 use parity_tests::commands::{
     edge_cases, hash, key, list, server, set, sorted_set, sorted_set_edge, string,

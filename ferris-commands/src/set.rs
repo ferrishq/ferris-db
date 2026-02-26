@@ -155,7 +155,12 @@ pub fn smembers(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     let set = get_set_or_empty(db, &key)?;
 
-    let members: Vec<RespValue> = set.into_iter().map(RespValue::BulkString).collect();
+    // Pre-allocate Vec with exact capacity to avoid reallocation during iteration
+    // This reduces allocation overhead for large sets
+    let mut members = Vec::with_capacity(set.len());
+    for member in set {
+        members.push(RespValue::BulkString(member));
+    }
 
     Ok(RespValue::Array(members))
 }

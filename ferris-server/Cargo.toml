@@ -29,6 +29,9 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Use jemalloc as global allocator for better performance on large allocations
+tikv-jemallocator.workspace = true
+
 [dev-dependencies]
 ferris-test-utils.workspace = true
 

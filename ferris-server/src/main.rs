@@ -7,6 +7,10 @@
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::unnecessary_wraps)]
 
+// Use jemalloc as the global allocator for better performance on large allocations
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use bytes::Bytes;
 use clap::Parser;
 use ferris_core::{Entry, ExpiryManager, KeyStore, RedisValue};
