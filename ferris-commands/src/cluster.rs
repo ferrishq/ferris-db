@@ -146,13 +146,7 @@ pub fn cluster(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         .ok_or_else(|| CommandError::InvalidArgument("invalid subcommand".to_string()))?
         .to_uppercase();
 
-    match subcommand.as_str() {
-        "KEYSLOT" => cluster_keyslot(ctx, &args[1..]),
-        "INFO" => cluster_info(ctx, &args[1..]),
-        _ => Err(CommandError::InvalidArgument(format!(
-            "Unknown CLUSTER subcommand '{subcommand}'"
-        ))),
-    }
+    cluster_dispatch(ctx, &subcommand, &args[1..])
 }
 
 #[cfg(test)]
@@ -237,5 +231,87 @@ mod tests {
         }
         // Should have good distribution (at least 500 unique slots for 1000 keys)
         assert!(slots.len() > 500);
+    }
+}
+
+/// CLUSTER NODES
+///
+/// Returns information about all nodes in the cluster.
+/// For now, returns just this node since cluster is not enabled.
+pub fn cluster_nodes(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if !args.is_empty() {
+        return Err(CommandError::WrongArity("CLUSTER NODES".to_string()));
+    }
+
+    // Format: <id> <ip:port@cport> <flags> <master> <ping-sent> <pong-recv> <config-epoch> <link-state> <slot> <slot> ... <slot>
+    // For single-node mode, return just this node
+    let node_id = "0000000000000000000000000000000000000000"; // Placeholder ID
+    let info = format!(
+        "{} 127.0.0.1:6380@16380 myself,master - 0 0 0 connected\n",
+        node_id
+    );
+
+    Ok(RespValue::BulkString(info.into()))
+}
+
+/// CLUSTER SLOTS
+///
+/// Returns array of slot ranges and their assigned nodes.
+/// For now, returns empty since cluster is not enabled.
+pub fn cluster_slots(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if !args.is_empty() {
+        return Err(CommandError::WrongArity("CLUSTER SLOTS".to_string()));
+    }
+
+    // Return empty array since no slots are assigned
+    Ok(RespValue::Array(vec![]))
+}
+
+/// CLUSTER ADDSLOTS slot [slot ...]
+///
+/// Assign hash slots to this node.
+/// Stub implementation - returns error since cluster mode is not enabled.
+pub fn cluster_addslots(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.is_empty() {
+        return Err(CommandError::WrongArity("CLUSTER ADDSLOTS".to_string()));
+    }
+
+    // For now, cluster mode is not fully implemented
+    Err(CommandError::InvalidArgument(
+        "Cluster mode is not enabled. Use standalone or replication mode.".to_string(),
+    ))
+}
+
+/// CLUSTER MEET ip port
+///
+/// Connect a node to the cluster.
+/// Stub implementation - returns error since cluster mode is not enabled.
+pub fn cluster_meet(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.len() != 2 {
+        return Err(CommandError::WrongArity("CLUSTER MEET".to_string()));
+    }
+
+    // For now, cluster mode is not fully implemented
+    Err(CommandError::InvalidArgument(
+        "Cluster mode is not enabled. Use standalone or replication mode.".to_string(),
+    ))
+}
+
+/// Update cluster dispatch to handle new subcommands
+pub fn cluster_dispatch(
+    ctx: &mut CommandContext,
+    subcommand: &str,
+    args: &[RespValue],
+) -> CommandResult {
+    match subcommand {
+        "KEYSLOT" => cluster_keyslot(ctx, args),
+        "INFO" => cluster_info(ctx, args),
+        "NODES" => cluster_nodes(ctx, args),
+        "SLOTS" => cluster_slots(ctx, args),
+        "ADDSLOTS" => cluster_addslots(ctx, args),
+        "MEET" => cluster_meet(ctx, args),
+        _ => Err(CommandError::InvalidArgument(format!(
+            "Unknown CLUSTER subcommand '{subcommand}'"
+        ))),
     }
 }

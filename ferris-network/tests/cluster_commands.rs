@@ -177,3 +177,78 @@ async fn test_cluster_keyslot_various_keys() {
 
     server.stop().await;
 }
+
+#[tokio::test]
+async fn test_cluster_nodes() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // CLUSTER NODES should return node information
+    let result = client.cmd(&["CLUSTER", "NODES"]).await;
+
+    match result {
+        RespValue::BulkString(nodes) => {
+            let nodes_str = String::from_utf8_lossy(&nodes);
+            // Should contain "myself" flag
+            assert!(nodes_str.contains("myself"));
+        }
+        _ => panic!("Expected bulk string, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_slots() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // CLUSTER SLOTS should return slot mappings
+    let result = client.cmd(&["CLUSTER", "SLOTS"]).await;
+
+    match result {
+        RespValue::Array(slots) => {
+            // For standalone mode, should be empty
+            assert_eq!(slots.len(), 0);
+        }
+        _ => panic!("Expected array, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_addslots_not_enabled() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // CLUSTER ADDSLOTS should return error since cluster is not enabled
+    let result = client.cmd(&["CLUSTER", "ADDSLOTS", "0", "1", "2"]).await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(msg.contains("not enabled") || msg.contains("not supported"));
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_cluster_meet_not_enabled() {
+    let server = TestServer::spawn().await;
+    let mut client = server.client().await;
+
+    // CLUSTER MEET should return error since cluster is not enabled
+    let result = client.cmd(&["CLUSTER", "MEET", "127.0.0.1", "6381"]).await;
+
+    match result {
+        RespValue::Error(msg) => {
+            assert!(msg.contains("not enabled") || msg.contains("not supported"));
+        }
+        _ => panic!("Expected error, got {result:?}"),
+    }
+
+    server.stop().await;
+}
