@@ -375,20 +375,31 @@ pub fn zadd(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let db = ctx.store().database(ctx.selected_db());
 
+    // Count how many pairs we have to potentially pre-allocate
+    let num_pairs = pair_args.len() / 2;
+
     // Fetch existing sorted set (or create new)
     let (mut scores, mut members) = match db.get(&key) {
         Some(entry) => {
             if entry.is_expired() {
                 db.delete(&key);
-                (HashMap::new(), BTreeMap::new())
+                // Create with capacity since we know we're adding num_pairs members
+                (HashMap::with_capacity(num_pairs), BTreeMap::new())
             } else {
                 match entry.value {
-                    RedisValue::SortedSet { scores, members } => (scores, members),
+                    RedisValue::SortedSet {
+                        mut scores,
+                        members,
+                    } => {
+                        // Reserve capacity for new members to avoid mid-insert reallocation
+                        scores.reserve(num_pairs);
+                        (scores, members)
+                    }
                     _ => return Err(CommandError::WrongType),
                 }
             }
         }
-        None => (HashMap::new(), BTreeMap::new()),
+        None => (HashMap::with_capacity(num_pairs), BTreeMap::new()),
     };
 
     let mut added: i64 = 0;

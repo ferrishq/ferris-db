@@ -133,6 +133,11 @@ pub fn hset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                         // Track fields we've already counted as new in this call
                         let original_len = hash.len();
 
+                        // Pre-allocate capacity for new fields to avoid reallocation
+                        // We reserve space for the pairs we're adding, even if some might be updates
+                        // This is a safe over-estimate that prevents mid-insert reallocation
+                        hash.reserve(pairs.len());
+
                         for (field, value) in &pairs {
                             if let Some(old_value) = hash.get(field) {
                                 // Field exists - calculate value size change

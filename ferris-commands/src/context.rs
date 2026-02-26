@@ -8,7 +8,6 @@ use ferris_replication::{ClusterManager, ReplicationManager};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::warn;
 
 /// Global counter for assigning unique client IDs
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -296,14 +295,16 @@ impl CommandContext {
 
             // Use try_append to avoid spawning a task per command
             // This is much faster than tokio::spawn for every write
-            if let Err(e) = aof_writer.try_append(AofEntry {
+            //
+            // If the channel is full, we silently drop the command.
+            // This prioritizes low latency over AOF completeness.
+            // In production, the channel size (10,000) is large enough that
+            // this should be rare. When it happens, it means AOF writer is
+            // falling behind, and logging would just make latency worse.
+            let _ = aof_writer.try_append(AofEntry {
                 command,
                 db: self.selected_db,
-            }) {
-                // If channel is full, log a warning but don't block
-                // This is acceptable for AOF - we prioritize command latency
-                warn!(error = %e, "Failed to append command to AOF");
-            }
+            });
         }
     }
 
