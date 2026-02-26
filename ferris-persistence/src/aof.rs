@@ -47,7 +47,9 @@ impl Default for AofConfig {
             file_path: PathBuf::from("ferris.aof"),
             fsync_mode: FsyncMode::EverySecond,
             buffer_size: 64 * 1024, // 64KB
-            channel_capacity: 1024,
+            // Increased from 1024 to reduce backpressure on write-heavy workloads
+            // Larger channel allows more buffering before try_send fails
+            channel_capacity: 10_000,
         }
     }
 }

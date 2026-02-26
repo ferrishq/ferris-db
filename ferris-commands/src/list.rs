@@ -104,7 +104,9 @@ pub fn lpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
             None => {
                 // Key doesn't exist or expired - create new list
-                let mut list = VecDeque::with_capacity(elements.len());
+                // Pre-allocate at least 64 elements to reduce reallocation on growth
+                let capacity = elements.len().max(64);
+                let mut list = VecDeque::with_capacity(capacity);
                 for elem in &elements {
                     list.push_front(elem.clone());
                 }
@@ -177,7 +179,9 @@ pub fn rpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
             None => {
                 // Key doesn't exist or expired - create new list
-                let mut list = VecDeque::with_capacity(elements.len());
+                // Pre-allocate at least 64 elements to reduce reallocation on growth
+                let capacity = elements.len().max(64);
+                let mut list = VecDeque::with_capacity(capacity);
                 for elem in &elements {
                     list.push_back(elem.clone());
                 }

@@ -37,14 +37,20 @@ fn get_set_or_empty(
         Some(entry) => {
             if entry.is_expired() {
                 db.delete(key);
-                return Ok(HashSet::new());
+                // Pre-allocate capacity to reduce rehashing on growth
+                // 64 is a reasonable default for most Redis sets
+                return Ok(HashSet::with_capacity(64));
             }
             match entry.value {
                 RedisValue::Set(s) => Ok(s),
                 _ => Err(CommandError::WrongType),
             }
         }
-        None => Ok(HashSet::new()),
+        None => {
+            // Pre-allocate capacity to reduce rehashing on growth
+            // 64 is a reasonable default for most Redis sets
+            Ok(HashSet::with_capacity(64))
+        }
     }
 }
 
