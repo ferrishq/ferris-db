@@ -20,6 +20,9 @@ pub enum PersistenceError {
     #[error("AOF writer channel closed")]
     ChannelClosed,
 
+    #[error("AOF writer channel full")]
+    ChannelFull,
+
     #[error("AOF writer task panicked")]
     TaskPanicked,
 

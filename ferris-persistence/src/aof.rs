@@ -104,6 +104,18 @@ impl AofWriter {
             .map_err(|_| PersistenceError::ChannelClosed)
     }
 
+    /// Try to append a command to the AOF without blocking
+    ///
+    /// This is a non-blocking version that uses try_send.
+    /// Returns an error if the channel is full or closed.
+    /// This is suitable for synchronous command handlers.
+    pub fn try_append(&self, entry: AofEntry) -> PersistenceResult<()> {
+        self.tx.try_send(entry).map_err(|e| match e {
+            tokio::sync::mpsc::error::TrySendError::Full(_) => PersistenceError::ChannelFull,
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => PersistenceError::ChannelClosed,
+        })
+    }
+
     /// Shutdown the AOF writer
     ///
     /// Waits for all pending writes to complete.

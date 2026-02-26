@@ -292,18 +292,18 @@ impl CommandContext {
     /// * `command` - The command and its arguments to write to AOF
     pub fn propagate_to_aof(&self, command: Vec<RespValue>) {
         if let Some(ref aof_writer) = self.aof_writer {
-            let aof_writer = Arc::clone(aof_writer);
-            let db = self.selected_db;
+            use ferris_persistence::aof::AofEntry;
 
-            // Spawn a task to send to AOF (non-blocking)
-            // Note: This is fire-and-forget. If the channel is full,
-            // the command will be dropped (which is acceptable for AOF).
-            tokio::spawn(async move {
-                use ferris_persistence::aof::AofEntry;
-                if let Err(e) = aof_writer.append(AofEntry { command, db }).await {
-                    warn!(error = %e, "Failed to append command to AOF");
-                }
-            });
+            // Use try_append to avoid spawning a task per command
+            // This is much faster than tokio::spawn for every write
+            if let Err(e) = aof_writer.try_append(AofEntry {
+                command,
+                db: self.selected_db,
+            }) {
+                // If channel is full, log a warning but don't block
+                // This is acceptable for AOF - we prioritize command latency
+                warn!(error = %e, "Failed to append command to AOF");
+            }
         }
     }
 
