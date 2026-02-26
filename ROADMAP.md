@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
-> **Status**: Phase 3 COMPLETE ✅ - Ready for Phase 4 (Cluster Mode)  
-> **Last Updated**: 2026-02-26 (225 commands, 2757 tests, Phases 1-3 COMPLETE)  
+> **Status**: Phase 4 IN PROGRESS 🚧 - Cluster foundation complete  
+> **Last Updated**: 2026-02-26 (227 commands, 2781 tests, Phases 1-3 COMPLETE, Phase 4 started)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -13,7 +13,7 @@
 | **Phase 1: Core Server** | ✅ Complete | 100% | 225 commands, RESP2/3, all data types, TTL, memory management |
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
-| **Phase 4: Cluster** | 🔜 Next | 0% | Hash slots, MOVED/ASK, gossip, failover |
+| **Phase 4: Cluster** | 🚧 In Progress | 20% | Hash slots ✅, CLUSTER commands ✅, topology (TODO) |
 | **Phase 5: Distributed Locks & Queues** | ⏳ Planned | 0% | DLOCK, DQUEUE, fencing tokens |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
@@ -546,23 +546,42 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 
 **Goal**: Horizontal scaling via hash-slot partitioning with automatic failover.
 
-**Status**: Not Started
+**Status**: 🚧 Foundation Complete (20% - Hash slots and basic commands)
 
-### 4.1-4.7 Cluster Features
-- [ ] **Tests**: Key routed to correct slot
+### 4.1 Hash Slot Infrastructure ✅ COMPLETE
+- [x] **Tests**: Key routed to correct slot (8 unit tests)
+- [x] **Tests**: Hash tag extraction works correctly
+- [x] **Tests**: Same hash tag produces same slot
+- [x] **Tests**: Slot distribution is uniform
+- [x] CRC16 implementation (Redis-compatible)
+- [x] Hash slot calculation (16,384 slots)
+- [x] Hash tag support: `{tag}` syntax for co-location
+- [x] CLUSTER KEYSLOT command
+
+### 4.2 Cluster Commands (Stubs) ✅ COMPLETE
+- [x] **Tests**: CLUSTER INFO returns status (12 integration tests)
+- [x] **Tests**: CLUSTER NODES returns node list
+- [x] **Tests**: CLUSTER SLOTS returns mappings
+- [x] **Tests**: Commands error appropriately when cluster disabled
+- [x] CLUSTER INFO (returns cluster state)
+- [x] CLUSTER NODES (single-node stub)
+- [x] CLUSTER SLOTS (empty for standalone)
+- [x] CLUSTER ADDSLOTS (not enabled error)
+- [x] CLUSTER MEET (not enabled error)
+
+### 4.3-4.7 Advanced Cluster Features (Not Started)
 - [ ] **Tests**: MOVED redirect works
 - [ ] **Tests**: ASK redirect during migration
 - [ ] **Tests**: Gossip propagates node state
 - [ ] **Tests**: Automatic failover on master failure
 - [ ] **Tests**: Slot migration under load
 - [ ] **Tests**: Cross-slot error for multi-key commands
-- [ ] Hash slot assignment (CRC16)
-- [ ] Cluster topology management
-- [ ] Gossip protocol
-- [ ] MOVED/ASK redirects
-- [ ] Slot migration
-- [ ] CLUSTER commands
+- [ ] Cluster topology management (multi-node)
+- [ ] Gossip protocol for node discovery
+- [ ] MOVED/ASK redirects for client routing
+- [ ] Slot migration protocol
 - [ ] Automatic failover
+- [ ] Replica promotion
 
 ### Phase 4 Milestone Criteria
 - [ ] 3+ node cluster operates correctly
