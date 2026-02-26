@@ -115,20 +115,14 @@ impl PubSubRegistry {
 
         // Track for subscriber
         let mut sub_channels = self.subscriber_channels.entry(subscriber_id).or_default();
-        sub_channels.insert(channel.clone());
+        sub_channels.insert(channel);
 
-        // Send confirmation
-        let count = sub_channels.len()
+        // Return count (confirmation is sent by command, not via pub/sub channel)
+        sub_channels.len()
             + self
                 .subscriber_patterns
                 .get(&subscriber_id)
-                .map_or(0, |p| p.len());
-
-        if let Some(tx) = self.subscribers.get(&subscriber_id) {
-            let _ = tx.send(PubSubMessage::Subscribe { channel, count });
-        }
-
-        count
+                .map_or(0, |p| p.len())
     }
 
     /// Unsubscribe from a channel
@@ -143,21 +137,14 @@ impl PubSubRegistry {
             sub_channels.remove(&channel);
         }
 
-        // Send confirmation
-        let count = self
-            .subscriber_channels
+        // Return count (confirmation is sent by command, not via pub/sub channel)
+        self.subscriber_channels
             .get(&subscriber_id)
             .map_or(0, |c| c.len())
             + self
                 .subscriber_patterns
                 .get(&subscriber_id)
-                .map_or(0, |p| p.len());
-
-        if let Some(tx) = self.subscribers.get(&subscriber_id) {
-            let _ = tx.send(PubSubMessage::Unsubscribe { channel, count });
-        }
-
-        count
+                .map_or(0, |p| p.len())
     }
 
     /// Unsubscribe from all channels
@@ -187,20 +174,13 @@ impl PubSubRegistry {
 
         // Track for subscriber
         let mut sub_patterns = self.subscriber_patterns.entry(subscriber_id).or_default();
-        sub_patterns.insert(pattern.clone());
+        sub_patterns.insert(pattern);
 
-        // Send confirmation
-        let count = self
-            .subscriber_channels
+        // Return count (confirmation is sent by command, not via pub/sub channel)
+        self.subscriber_channels
             .get(&subscriber_id)
             .map_or(0, |c| c.len())
-            + sub_patterns.len();
-
-        if let Some(tx) = self.subscribers.get(&subscriber_id) {
-            let _ = tx.send(PubSubMessage::PSubscribe { pattern, count });
-        }
-
-        count
+            + sub_patterns.len()
     }
 
     /// Unsubscribe from a pattern
@@ -215,21 +195,14 @@ impl PubSubRegistry {
             sub_patterns.remove(&pattern);
         }
 
-        // Send confirmation
-        let count = self
-            .subscriber_channels
+        // Return count (confirmation is sent by command, not via pub/sub channel)
+        self.subscriber_channels
             .get(&subscriber_id)
             .map_or(0, |c| c.len())
             + self
                 .subscriber_patterns
                 .get(&subscriber_id)
-                .map_or(0, |p| p.len());
-
-        if let Some(tx) = self.subscribers.get(&subscriber_id) {
-            let _ = tx.send(PubSubMessage::PUnsubscribe { pattern, count });
-        }
-
-        count
+                .map_or(0, |p| p.len())
     }
 
     /// Unsubscribe from all patterns
@@ -405,23 +378,27 @@ mod tests {
     #[test]
     fn test_subscribe_unsubscribe() {
         let registry = PubSubRegistry::new();
-        let (id, mut rx) = registry.register_subscriber();
+        let (id, _rx) = registry.register_subscriber();
 
         let count = registry.subscribe(id, Bytes::from("channel1"));
         assert_eq!(count, 1);
 
-        // Should receive subscribe confirmation
-        let msg = rx.try_recv().unwrap();
-        match msg {
-            PubSubMessage::Subscribe { channel, count } => {
-                assert_eq!(channel, Bytes::from("channel1"));
-                assert_eq!(count, 1);
-            }
-            _ => panic!("Expected Subscribe message"),
-        }
+        // Verify subscription is tracked
+        assert!(registry
+            .subscriber_channels
+            .get(&id)
+            .map_or(false, |channels| channels
+                .contains(&Bytes::from("channel1"))));
 
         let count = registry.unsubscribe(id, Bytes::from("channel1"));
         assert_eq!(count, 0);
+
+        // Verify unsubscription is tracked
+        assert!(!registry
+            .subscriber_channels
+            .get(&id)
+            .map_or(false, |channels| channels
+                .contains(&Bytes::from("channel1"))));
     }
 
     #[test]
@@ -430,11 +407,11 @@ mod tests {
         let (id, mut rx) = registry.register_subscriber();
 
         registry.subscribe(id, Bytes::from("news"));
-        rx.try_recv().unwrap(); // Consume subscribe confirmation
 
         let count = registry.publish(b"news", Bytes::from("Hello!"));
         assert_eq!(count, 1);
 
+        // Should receive the published message
         let msg = rx.try_recv().unwrap();
         match msg {
             PubSubMessage::Message { channel, message } => {
@@ -451,11 +428,11 @@ mod tests {
         let (id, mut rx) = registry.register_subscriber();
 
         registry.psubscribe(id, Bytes::from("news.*"));
-        rx.try_recv().unwrap(); // Consume psubscribe confirmation
 
         let count = registry.publish(b"news.sports", Bytes::from("Goal!"));
         assert_eq!(count, 1);
 
+        // Should receive the published message
         let msg = rx.try_recv().unwrap();
         match msg {
             PubSubMessage::PatternMessage {

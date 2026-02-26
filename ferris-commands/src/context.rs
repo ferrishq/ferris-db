@@ -23,8 +23,8 @@ pub struct CommandContext {
     pubsub_registry: Arc<PubSubRegistry>,
     /// Subscriber ID for pub/sub
     subscriber_id: SubscriberId,
-    /// Receiver for pub/sub messages (kept alive to prevent channel closure)
-    #[allow(dead_code)]
+    /// Receiver for pub/sub messages
+    /// This will be taken by the connection handler to poll for messages
     pubsub_receiver: mpsc::UnboundedReceiver<PubSubMessage>,
     /// Optional AOF writer for persistence
     aof_writer: Option<Arc<AofWriter>>,
@@ -262,6 +262,17 @@ impl CommandContext {
     #[must_use]
     pub const fn subscriber_id(&self) -> SubscriberId {
         self.subscriber_id
+    }
+
+    /// Take the pub/sub receiver for polling messages
+    ///
+    /// This is used by the connection handler to poll for pub/sub messages
+    /// and send them to the client. The receiver can only be taken once.
+    #[must_use]
+    pub fn take_pubsub_receiver(&mut self) -> mpsc::UnboundedReceiver<PubSubMessage> {
+        // Replace with a dummy channel that will never receive messages
+        let (_, rx) = mpsc::unbounded_channel();
+        std::mem::replace(&mut self.pubsub_receiver, rx)
     }
 
     /// Propagate a write command to AOF (non-blocking)

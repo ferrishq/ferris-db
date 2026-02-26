@@ -176,7 +176,9 @@ impl TestClient {
     }
 
     /// Read a response from the server
-    async fn read_response(&mut self) -> RespValue {
+    ///
+    /// This is useful for reading pub/sub messages asynchronously
+    pub async fn read_response(&mut self) -> RespValue {
         self.try_read_response()
             .await
             .expect("failed to read response")

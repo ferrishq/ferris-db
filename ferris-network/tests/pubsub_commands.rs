@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 #![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::match_wild_err_arm)]
+#![allow(clippy::uninlined_format_args)]
 
 //! Integration tests for Pub/Sub commands: PUBLISH, SUBSCRIBE, UNSUBSCRIBE, PSUBSCRIBE, PUNSUBSCRIBE, PUBSUB
 
@@ -485,6 +487,91 @@ async fn test_pubsub_wrong_arity() {
     // PSUBSCRIBE with no arguments
     let result = client.cmd(&["PSUBSCRIBE"]).await;
     assert!(matches!(result, RespValue::Error(_)));
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_realtime_message_delivery() {
+    use tokio::time::{timeout, Duration};
+
+    let server = TestServer::spawn().await;
+
+    // Create subscriber and publisher
+    let mut subscriber = server.client().await;
+    let mut publisher = server.client().await;
+
+    // Subscribe to channel
+    let subscribe_resp = subscriber.cmd(&["SUBSCRIBE", "realtime"]).await;
+    assert!(matches!(subscribe_resp, RespValue::Array(_)));
+
+    // Give subscription time to register
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Publish a message
+    publisher.cmd(&["PUBLISH", "realtime", "Hello!"]).await;
+
+    // Subscriber should receive the message via pub/sub channel
+    // The message will be delivered asynchronously through the connection handler
+    // We need to read it from the socket
+
+    // Try to read a message with timeout
+    let result = timeout(Duration::from_secs(1), subscriber.read_response()).await;
+
+    match result {
+        Ok(msg) => {
+            // Should be a message array: ["message", "realtime", "Hello!"]
+            match msg {
+                RespValue::Array(parts) => {
+                    assert_eq!(parts.len(), 3);
+                    assert_eq!(parts[0], RespValue::bulk_string("message"));
+                    assert_eq!(parts[1], RespValue::bulk_string("realtime"));
+                    assert_eq!(parts[2], RespValue::bulk_string("Hello!"));
+                }
+                _ => panic!("Expected message array, got: {:?}", msg),
+            }
+        }
+        Err(_) => {
+            panic!("Timeout waiting for pub/sub message - message delivery not working!");
+        }
+    }
+
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn test_pattern_message_delivery() {
+    use tokio::time::{timeout, Duration};
+
+    let server = TestServer::spawn().await;
+
+    let mut subscriber = server.client().await;
+    let mut publisher = server.client().await;
+
+    // Subscribe to pattern
+    subscriber.cmd(&["PSUBSCRIBE", "news.*"]).await;
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Publish to matching channel
+    publisher.cmd(&["PUBLISH", "news.sports", "Goal!"]).await;
+
+    // Read pattern message
+    let result = timeout(Duration::from_secs(1), subscriber.read_response()).await;
+
+    match result {
+        Ok(msg) => match msg {
+            RespValue::Array(parts) => {
+                assert_eq!(parts.len(), 4);
+                assert_eq!(parts[0], RespValue::bulk_string("pmessage"));
+                assert_eq!(parts[1], RespValue::bulk_string("news.*"));
+                assert_eq!(parts[2], RespValue::bulk_string("news.sports"));
+                assert_eq!(parts[3], RespValue::bulk_string("Goal!"));
+            }
+            _ => panic!("Expected pmessage array"),
+        },
+        Err(_) => panic!("Timeout waiting for pattern message"),
+    }
 
     server.stop().await;
 }

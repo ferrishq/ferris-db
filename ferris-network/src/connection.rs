@@ -19,7 +19,7 @@
 use crate::shutdown::Shutdown;
 use bytes::Bytes;
 use ferris_commands::{BlockingAction, CommandContext, CommandError, CommandExecutor};
-use ferris_core::{BlockingRegistry, PubSubRegistry};
+use ferris_core::{BlockingRegistry, PubSubMessage, PubSubRegistry};
 use ferris_persistence::AofWriter;
 use ferris_protocol::{Command, ProtocolVersion, RespCodec, RespValue};
 use ferris_replication::ReplicationManager;
@@ -79,6 +79,9 @@ pub async fn handle_connection(
         None
     };
 
+    // Take the pub/sub receiver for polling messages
+    let mut pubsub_rx = ctx.take_pubsub_receiver();
+
     loop {
         // Create a timeout future for this iteration
         let timeout_sleep = timeout_duration.map(tokio::time::sleep);
@@ -99,6 +102,15 @@ pub async fn handle_connection(
             } => {
                 debug!(peer = %peer, timeout = timeout_secs, "Connection idle timeout");
                 break;
+            }
+            // Pub/Sub messages from subscribed channels
+            Some(msg) = pubsub_rx.recv() => {
+                // Convert pub/sub message to RESP and send to client
+                let resp = pubsub_message_to_resp(msg);
+                if framed.send(resp).await.is_err() {
+                    debug!(peer = %peer, "Failed to send pub/sub message, closing connection");
+                    break;
+                }
             }
             // Wait for next command(s) from client
             frame = framed.next() => {
@@ -529,6 +541,56 @@ async fn handle_replication_streaming(
                 }
             }
         }
+    }
+}
+
+/// Convert a pub/sub message to RESP format for sending to client
+///
+/// Redis pub/sub messages are sent as arrays with specific formats:
+/// - Message: ["message", channel, message]
+/// - PatternMessage: ["pmessage", pattern, channel, message]
+/// - Subscribe: ["subscribe", channel, count]
+/// - Unsubscribe: ["unsubscribe", channel, count]
+/// - PSubscribe: ["psubscribe", pattern, count]
+/// - PUnsubscribe: ["punsubscribe", pattern, count]
+#[allow(clippy::cast_possible_wrap)] // Subscription counts will never overflow i64
+fn pubsub_message_to_resp(msg: PubSubMessage) -> RespValue {
+    match msg {
+        PubSubMessage::Message { channel, message } => RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("message")),
+            RespValue::BulkString(channel),
+            RespValue::BulkString(message),
+        ]),
+        PubSubMessage::PatternMessage {
+            pattern,
+            channel,
+            message,
+        } => RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("pmessage")),
+            RespValue::BulkString(pattern),
+            RespValue::BulkString(channel),
+            RespValue::BulkString(message),
+        ]),
+        PubSubMessage::Subscribe { channel, count } => RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("subscribe")),
+            RespValue::BulkString(channel),
+            RespValue::Integer(count as i64),
+        ]),
+        PubSubMessage::Unsubscribe { channel, count } => RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("unsubscribe")),
+            RespValue::BulkString(channel),
+            RespValue::Integer(count as i64),
+        ]),
+        PubSubMessage::PSubscribe { pattern, count } => RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("psubscribe")),
+            RespValue::BulkString(pattern),
+            RespValue::Integer(count as i64),
+        ]),
+        PubSubMessage::PUnsubscribe { pattern, count } => RespValue::Array(vec![
+            RespValue::BulkString(Bytes::from("punsubscribe")),
+            RespValue::BulkString(pattern),
+            RespValue::Integer(count as i64),
+        ]),
     }
 }
 
