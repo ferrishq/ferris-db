@@ -104,25 +104,29 @@ impl Database {
     /// Set an entry, tracking memory usage
     /// Automatically increments the version for optimistic locking (WATCH)
     pub fn set(&self, key: Bytes, mut entry: Entry) {
+        use dashmap::mapref::entry::Entry as DashEntry;
+
         // Increment version for optimistic locking (WATCH command)
         entry.increment_version();
 
         let new_size = Self::entry_size(&key, &entry);
 
-        // Check if we're overwriting an existing key
-        let old_size = self
-            .data
-            .get(&key)
-            .map(|r| Self::entry_size(&key, r.value()))
-            .unwrap_or(0);
-
-        self.data.insert(key, entry);
-
-        // Update memory tracking
-        if old_size > 0 {
-            self.memory_tracker.subtract(old_size);
+        // Use entry API for single lock acquisition (atomic get+set)
+        match self.data.entry(key.clone()) {
+            DashEntry::Occupied(mut occupied) => {
+                // Key exists - calculate old size and replace
+                let old_size = Self::entry_size(&key, occupied.get());
+                occupied.insert(entry);
+                // Update memory tracking
+                self.memory_tracker.subtract(old_size);
+                self.memory_tracker.add(new_size);
+            }
+            DashEntry::Vacant(vacant) => {
+                // Key doesn't exist - just insert
+                vacant.insert(entry);
+                self.memory_tracker.add(new_size);
+            }
         }
-        self.memory_tracker.add(new_size);
     }
 
     /// Set an entry without tracking memory (for internal operations like swap)

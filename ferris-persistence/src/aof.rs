@@ -127,6 +127,10 @@ impl AofWriter {
 }
 
 /// Background task that writes AOF entries to disk
+///
+/// This task batches writes and performs blocking I/O (flush/fsync) in a
+/// separate blocking thread pool to avoid blocking the async runtime.
+#[allow(clippy::too_many_lines)]
 async fn aof_writer_task(
     mut rx: mpsc::Receiver<AofEntry>,
     config: Arc<AofConfig>,
@@ -137,10 +141,14 @@ async fn aof_writer_task(
         .append(true)
         .open(&config.file_path)?;
 
-    let mut writer = BufWriter::with_capacity(config.buffer_size, file);
+    // Wrap writer in Arc<Mutex> so we can move it into spawn_blocking
+    let writer = Arc::new(std::sync::Mutex::new(BufWriter::with_capacity(
+        config.buffer_size,
+        file,
+    )));
     let mut last_fsync = Instant::now();
     let mut current_db: Option<usize> = None;
-    let mut write_count = 0;
+    let mut write_count: u64 = 0;
 
     // For everysec mode, we need a timer
     let fsync_interval = Duration::from_secs(1);
@@ -151,82 +159,114 @@ async fn aof_writer_task(
             entry = rx.recv() => {
                 match entry {
                     Some(entry) => {
+                        // Serialize commands to bytes first (non-blocking)
+                        let mut data_to_write = Vec::new();
+
                         // Write SELECT command if database changed
                         if current_db != Some(entry.db) {
-                            write_select_command(&mut writer, entry.db)?;
+                            let select_cmd = vec![
+                                RespValue::BulkString(Bytes::from("SELECT")),
+                                RespValue::BulkString(Bytes::from(entry.db.to_string())),
+                            ];
+                            if let Ok(bytes) = serialize_resp(&RespValue::Array(select_cmd)) {
+                                data_to_write.extend(bytes);
+                            }
                             current_db = Some(entry.db);
                         }
 
-                        // Serialize and write command
-                        write_command(&mut writer, &entry.command)?;
+                        // Serialize command
+                        let array = RespValue::Array(entry.command);
+                        if let Ok(bytes) = serialize_resp(&array) {
+                            data_to_write.extend(bytes);
+                        }
+
+                        // Write to buffer (this is fast, just memcpy to BufWriter)
+                        // Note: unwrap is safe here - poisoned mutex means another thread panicked
+                        // and we should propagate that failure
+                        #[allow(clippy::unwrap_used)]
+                        {
+                            let mut w = writer.lock().unwrap();
+                            if let Err(e) = w.write_all(&data_to_write) {
+                                warn!(error = %e, "Failed to write to AOF buffer");
+                            }
+                        }
                         write_count += 1;
 
-                        // Fsync based on mode
-                        match config.fsync_mode {
-                            FsyncMode::Always => {
-                                writer.flush()?;
-                                fsync_file(writer.get_ref())?;
-                            }
-                            FsyncMode::EverySecond => {
-                                // Check if a second has elapsed
-                                if last_fsync.elapsed() >= fsync_interval {
-                                    writer.flush()?;
-                                    fsync_file(writer.get_ref())?;
+                        // Fsync based on mode - use spawn_blocking to avoid blocking async runtime
+                        let needs_fsync = match config.fsync_mode {
+                            FsyncMode::Always => true,
+                            FsyncMode::EverySecond => last_fsync.elapsed() >= fsync_interval,
+                            FsyncMode::No => false,
+                        };
+
+                        if needs_fsync {
+                            let writer_clone = Arc::clone(&writer);
+                            #[allow(clippy::unwrap_used)]
+                            let fsync_result = tokio::task::spawn_blocking(move || {
+                                let mut w = writer_clone.lock().unwrap();
+                                w.flush()?;
+                                fsync_file(w.get_ref())
+                            }).await;
+
+                            match fsync_result {
+                                Ok(Ok(())) => {
                                     last_fsync = Instant::now();
                                     debug!(count = write_count, "AOF fsync completed");
                                 }
-                            }
-                            FsyncMode::No => {
-                                // Just buffer, let OS handle fsync
+                                Ok(Err(e)) => {
+                                    warn!(error = %e, "AOF fsync failed");
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "AOF fsync task panicked");
+                                }
                             }
                         }
                     }
                     None => {
-                        // Channel closed, flush and exit
-                        writer.flush()?;
-                        if config.fsync_mode != FsyncMode::No {
-                            fsync_file(writer.get_ref())?;
-                        }
+                        // Channel closed, flush and exit using spawn_blocking
+                        let writer_clone = Arc::clone(&writer);
+                        let do_fsync = config.fsync_mode != FsyncMode::No;
+                        #[allow(clippy::unwrap_used)]
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let mut w = writer_clone.lock().unwrap();
+                            let _ = w.flush();
+                            if do_fsync {
+                                let _ = fsync_file(w.get_ref());
+                            }
+                        }).await;
                         info!(total_writes = write_count, "AOF writer task exiting");
                         break;
                     }
                 }
             }
 
-            // Periodic fsync for everysec mode
+            // Periodic fsync for everysec mode - use spawn_blocking
             _ = tokio::time::sleep(fsync_interval), if config.fsync_mode == FsyncMode::EverySecond => {
                 if last_fsync.elapsed() >= fsync_interval {
-                    writer.flush()?;
-                    fsync_file(writer.get_ref())?;
-                    last_fsync = Instant::now();
-                    debug!(count = write_count, "AOF periodic fsync");
+                    let writer_clone = Arc::clone(&writer);
+                    #[allow(clippy::unwrap_used)]
+                    let fsync_result = tokio::task::spawn_blocking(move || {
+                        let mut w = writer_clone.lock().unwrap();
+                        w.flush()?;
+                        fsync_file(w.get_ref())
+                    }).await;
+
+                    match fsync_result {
+                        Ok(Ok(())) => {
+                            last_fsync = Instant::now();
+                            debug!(count = write_count, "AOF periodic fsync");
+                        }
+                        Ok(Err(e)) => {
+                            warn!(error = %e, "AOF periodic fsync failed");
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "AOF periodic fsync task panicked");
+                        }
+                    }
                 }
             }
         }
     }
-
-    Ok(())
-}
-
-/// Write a SELECT command to the AOF
-fn write_select_command(writer: &mut BufWriter<File>, db: usize) -> PersistenceResult<()> {
-    let select_cmd = vec![
-        RespValue::BulkString(Bytes::from("SELECT")),
-        RespValue::BulkString(Bytes::from(db.to_string())),
-    ];
-    write_command(writer, &select_cmd)
-}
-
-/// Write a command to the AOF in RESP format
-fn write_command(writer: &mut BufWriter<File>, command: &[RespValue]) -> PersistenceResult<()> {
-    // Convert to RESP array
-    let array = RespValue::Array(command.to_vec());
-
-    // Serialize to bytes
-    let bytes = serialize_resp(&array)?;
-
-    // Write to file
-    writer.write_all(&bytes).map_err(PersistenceError::Io)?;
 
     Ok(())
 }

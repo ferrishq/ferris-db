@@ -3,7 +3,7 @@
 
 use crate::{CommandContext, CommandError, CommandResult};
 use bytes::Bytes;
-use ferris_core::{Entry, RedisValue};
+use ferris_core::{Entry, RedisValue, UpdateAction};
 use ferris_protocol::RespValue;
 use std::collections::HashMap;
 
@@ -109,21 +109,66 @@ pub fn hset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     let key = get_bytes(&args[0])?;
-    let mut hash = get_hash_for_write(ctx, &key)?;
 
-    let mut new_fields = 0i64;
-    let pairs = &args[1..];
-    for chunk in pairs.chunks(2) {
-        let field = get_bytes(&chunk[0])?;
-        let value = get_bytes(&chunk[1])?;
-        if !hash.contains_key(&field) {
-            new_fields += 1;
-        }
-        hash.insert(field, value);
-    }
+    // Pre-parse all field-value pairs
+    let pairs: Vec<(Bytes, Bytes)> = args[1..]
+        .chunks(2)
+        .map(|chunk| Ok((get_bytes(&chunk[0])?, get_bytes(&chunk[1])?)))
+        .collect::<Result<_, CommandError>>()?;
+
+    // Calculate memory delta: for each new field, we add (field_len + value_len + 48)
+    // For existing fields, we add (new_value_len - old_value_len)
+    // We'll track this inside the closure
 
     let db = ctx.store().database(ctx.selected_db());
-    db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
+
+    // Use atomic update to avoid separate get + set (single lock acquisition)
+    let result = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                // Key exists - modify hash in place
+                match &mut e.value {
+                    RedisValue::Hash(hash) => {
+                        let mut memory_delta: isize = 0;
+                        // Track fields we've already counted as new in this call
+                        let original_len = hash.len();
+
+                        for (field, value) in &pairs {
+                            if let Some(old_value) = hash.get(field) {
+                                // Field exists - calculate value size change
+                                memory_delta += (value.len() as isize) - (old_value.len() as isize);
+                            } else {
+                                // New field - add full overhead
+                                memory_delta += (field.len() + value.len() + 48) as isize;
+                            }
+                            hash.insert(field.clone(), value.clone());
+                        }
+
+                        // Count new fields as difference in hash size
+                        let new_fields = (hash.len() - original_len) as i64;
+
+                        (UpdateAction::KeepWithDelta(memory_delta), Ok(new_fields))
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
+                }
+            }
+            None => {
+                // Key doesn't exist - create new hash
+                let mut hash = HashMap::with_capacity(pairs.len());
+                for (field, value) in &pairs {
+                    hash.insert(field.clone(), value.clone());
+                }
+                // Duplicate fields in args mean fewer actual new fields
+                let new_fields = hash.len() as i64;
+                (
+                    UpdateAction::Set(Entry::new(RedisValue::Hash(hash))),
+                    Ok(new_fields),
+                )
+            }
+        }
+    });
+
+    let new_fields = result?;
 
     // Propagate to AOF and replication
     ctx.propagate_args(args);
@@ -146,20 +191,43 @@ pub fn hsetnx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let field = get_bytes(&args[1])?;
     let value = get_bytes(&args[2])?;
 
-    let mut hash = get_hash_for_write(ctx, &key)?;
-
-    if hash.contains_key(&field) {
-        return Ok(RespValue::Integer(0));
-    }
-
-    hash.insert(field, value);
     let db = ctx.store().database(ctx.selected_db());
-    db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
 
-    // Propagate to AOF and replication
-    ctx.propagate_args(args);
+    // Use atomic update
+    let (was_set, result) = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => match &mut e.value {
+                RedisValue::Hash(hash) => {
+                    if hash.contains_key(&field) {
+                        (UpdateAction::Keep, (false, Ok(())))
+                    } else {
+                        let memory_delta = (field.len() + value.len() + 48) as isize;
+                        hash.insert(field.clone(), value.clone());
+                        (UpdateAction::KeepWithDelta(memory_delta), (true, Ok(())))
+                    }
+                }
+                _ => (UpdateAction::Keep, (false, Err(CommandError::WrongType))),
+            },
+            None => {
+                // Create new hash with single field
+                let mut hash = HashMap::with_capacity(1);
+                hash.insert(field.clone(), value.clone());
+                (
+                    UpdateAction::Set(Entry::new(RedisValue::Hash(hash))),
+                    (true, Ok(())),
+                )
+            }
+        }
+    });
 
-    Ok(RespValue::Integer(1))
+    result?;
+
+    if was_set {
+        ctx.propagate_args(args);
+        Ok(RespValue::Integer(1))
+    } else {
+        Ok(RespValue::Integer(0))
+    }
 }
 
 /// HDEL key field [field ...]
@@ -174,29 +242,49 @@ pub fn hdel(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     let key = get_bytes(&args[0])?;
-    let mut hash = get_hash_for_write(ctx, &key)?;
 
-    if hash.is_empty() {
-        return Ok(RespValue::Integer(0));
-    }
-
-    let mut removed = 0i64;
-    for arg in &args[1..] {
-        let field = get_bytes(arg)?;
-        if hash.remove(&field).is_some() {
-            removed += 1;
-        }
-    }
+    // Pre-parse fields to delete
+    let fields: Vec<Bytes> = args[1..].iter().map(get_bytes).collect::<Result<_, _>>()?;
 
     let db = ctx.store().database(ctx.selected_db());
-    if hash.is_empty() {
-        db.delete(&key);
-    } else {
-        db.set(key.clone(), Entry::new(RedisValue::Hash(hash)));
-    }
+
+    // Use atomic update
+    let result: Result<i64, CommandError> = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => match &mut e.value {
+                RedisValue::Hash(hash) => {
+                    if hash.is_empty() {
+                        return (UpdateAction::Keep, Ok(0));
+                    }
+
+                    let mut removed = 0i64;
+                    let mut memory_delta: isize = 0;
+
+                    for field in &fields {
+                        if let Some(old_value) = hash.remove(field) {
+                            // Subtract memory for removed field
+                            memory_delta -= (field.len() + old_value.len() + 48) as isize;
+                            removed += 1;
+                        }
+                    }
+
+                    let action = if hash.is_empty() {
+                        UpdateAction::Delete
+                    } else {
+                        UpdateAction::KeepWithDelta(memory_delta)
+                    };
+
+                    (action, Ok(removed))
+                }
+                _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
+            },
+            None => (UpdateAction::Keep, Ok(0)),
+        }
+    });
+
+    let removed = result?;
 
     if removed > 0 {
-        // Propagate to AOF and replication
         ctx.propagate_args(args);
     }
 
