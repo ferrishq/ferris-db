@@ -28,12 +28,13 @@ serde_json.workspace = true
 # Logging
 tracing.workspace = true
 
-# Memory allocator (same as server for fair benchmarks)
-tikv-jemallocator.workspace = true
-
 # Testing utilities
 colored = "2"
 async-trait = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+# Memory allocator (same as server for fair benchmarks, Unix only)
+tikv-jemallocator.workspace = true
 
 [dev-dependencies]
 # Benchmarking

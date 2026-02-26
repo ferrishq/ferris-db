@@ -14,6 +14,8 @@
 #![allow(clippy::cast_possible_truncation)]
 
 // Use jemalloc for benchmarking (same as ferris-db server)
+// Only available on Unix platforms (jemalloc doesn't support Windows)
+#[cfg(unix)]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

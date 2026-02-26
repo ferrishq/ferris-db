@@ -61,7 +61,7 @@ rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 glob-match = "0.2"
 
-# Memory allocator
+# Memory allocator (Unix only - jemalloc doesn't support Windows)
 tikv-jemallocator = "0.6"
 
 # Testing

@@ -8,6 +8,8 @@
 #![allow(clippy::unnecessary_wraps)]
 
 // Use jemalloc as the global allocator for better performance on large allocations
+// Only available on Unix platforms (jemalloc doesn't support Windows)
+#[cfg(unix)]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
