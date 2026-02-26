@@ -385,6 +385,224 @@ mod tests {
 
         assert!(matches!(result, Err(CommandError::InvalidArgument(_))));
     }
+
+    #[test]
+    fn test_migrate_invalid_db() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let result = migrate(
+            &mut ctx,
+            &[
+                RespValue::BulkString("127.0.0.1".into()),
+                RespValue::BulkString("6380".into()),
+                RespValue::BulkString("mykey".into()),
+                RespValue::BulkString("invalid".into()), // Invalid DB
+                RespValue::BulkString("5000".into()),
+            ],
+        );
+
+        assert!(matches!(result, Err(CommandError::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn test_migrate_with_keys_option() {
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let result = migrate(
+            &mut ctx,
+            &[
+                RespValue::BulkString("127.0.0.1".into()),
+                RespValue::BulkString("6380".into()),
+                RespValue::BulkString("".into()), // Empty key when using KEYS option
+                RespValue::BulkString("0".into()),
+                RespValue::BulkString("5000".into()),
+                RespValue::BulkString("KEYS".into()),
+                RespValue::BulkString("key1".into()),
+                RespValue::BulkString("key2".into()),
+                RespValue::BulkString("key3".into()),
+            ],
+        );
+
+        // Should parse KEYS option correctly and return NotImplemented
+        assert!(matches!(result, Err(CommandError::NotImplemented(_))));
+    }
+
+    // Tests for redirect logic
+    #[test]
+    fn test_should_check_redirect_cluster_commands() {
+        // Cluster management commands should not be checked
+        assert!(!should_check_redirect("CLUSTER"));
+        assert!(!should_check_redirect("ASKING"));
+        assert!(!should_check_redirect("MIGRATE"));
+        assert!(!should_check_redirect("READONLY"));
+        assert!(!should_check_redirect("READWRITE"));
+    }
+
+    #[test]
+    fn test_should_check_redirect_connection_commands() {
+        // Connection commands without keys should not be checked
+        assert!(!should_check_redirect("AUTH"));
+        assert!(!should_check_redirect("ECHO"));
+        assert!(!should_check_redirect("PING"));
+        assert!(!should_check_redirect("QUIT"));
+        assert!(!should_check_redirect("SELECT"));
+        assert!(!should_check_redirect("INFO"));
+    }
+
+    #[test]
+    fn test_should_check_redirect_key_commands() {
+        // Commands that access keys should be checked
+        assert!(should_check_redirect("GET"));
+        assert!(should_check_redirect("SET"));
+        assert!(should_check_redirect("DEL"));
+        assert!(should_check_redirect("INCR"));
+        assert!(should_check_redirect("LPUSH"));
+        assert!(should_check_redirect("HGET"));
+        assert!(should_check_redirect("SADD"));
+        assert!(should_check_redirect("ZADD"));
+    }
+
+    #[test]
+    fn test_extract_first_key_simple_commands() {
+        // Simple key commands
+        let args = [bytes::Bytes::from("mykey")];
+        let key = extract_first_key("GET", &args);
+        assert_eq!(key, Some(b"mykey" as &[u8]));
+
+        let args = [bytes::Bytes::from("mykey"), bytes::Bytes::from("value")];
+        let key = extract_first_key("SET", &args);
+        assert_eq!(key, Some(b"mykey" as &[u8]));
+    }
+
+    #[test]
+    fn test_extract_first_key_no_key_commands() {
+        // Commands with no keys
+        let key = extract_first_key("PING", &[]);
+        assert_eq!(key, None);
+
+        let args = [bytes::Bytes::from("server")];
+        let key = extract_first_key("INFO", &args);
+        assert_eq!(key, None);
+    }
+
+    #[test]
+    fn test_extract_first_key_eval() {
+        // EVAL script numkeys key [key ...] arg [arg ...]
+        let args = [
+            bytes::Bytes::from("return redis.call('GET', KEYS[1])"),
+            bytes::Bytes::from("1"), // numkeys
+            bytes::Bytes::from("mykey"),
+        ];
+        let key = extract_first_key("EVAL", &args);
+        assert_eq!(key, Some(b"mykey" as &[u8]));
+
+        // EVAL with numkeys=0
+        let args = [bytes::Bytes::from("return 42"), bytes::Bytes::from("0")];
+        let key = extract_first_key("EVAL", &args);
+        assert_eq!(key, None);
+    }
+
+    #[test]
+    fn test_check_cluster_redirect_no_cluster() {
+        // Without cluster mode, should always return Ok(())
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let args = [bytes::Bytes::from("mykey")];
+        let result = check_cluster_redirect(&ctx, "GET", &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_cluster_redirect_asking_flag() {
+        // With ASKING flag set, should skip redirect check
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+        ctx.set_asking(true);
+
+        let args = [bytes::Bytes::from("mykey")];
+        let result = check_cluster_redirect(&ctx, "GET", &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_cluster_redirect_no_key() {
+        // Commands with no keys should not redirect
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let result = check_cluster_redirect(&ctx, "PING", &[]);
+        assert!(result.is_ok());
+
+        let args = [bytes::Bytes::from("server")];
+        let result = check_cluster_redirect(&ctx, "INFO", &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_key_extraction_empty_args() {
+        // Empty args should return None
+        let key = extract_first_key("GET", &[]);
+        assert_eq!(key, None);
+    }
+
+    #[test]
+    fn test_key_extraction_hash_commands() {
+        // Hash commands: key is first arg
+        let args = [bytes::Bytes::from("myhash"), bytes::Bytes::from("field")];
+        let key = extract_first_key("HGET", &args);
+        assert_eq!(key, Some(b"myhash" as &[u8]));
+
+        let args = [
+            bytes::Bytes::from("myhash"),
+            bytes::Bytes::from("field"),
+            bytes::Bytes::from("value"),
+        ];
+        let key = extract_first_key("HSET", &args);
+        assert_eq!(key, Some(b"myhash" as &[u8]));
+    }
+
+    #[test]
+    fn test_key_extraction_list_commands() {
+        // List commands: key is first arg
+        let args = [bytes::Bytes::from("mylist"), bytes::Bytes::from("element")];
+        let key = extract_first_key("LPUSH", &args);
+        assert_eq!(key, Some(b"mylist" as &[u8]));
+
+        let args = [bytes::Bytes::from("mylist")];
+        let key = extract_first_key("RPOP", &args);
+        assert_eq!(key, Some(b"mylist" as &[u8]));
+    }
+
+    #[test]
+    fn test_key_extraction_set_commands() {
+        // Set commands: key is first arg
+        let args = [bytes::Bytes::from("myset"), bytes::Bytes::from("member")];
+        let key = extract_first_key("SADD", &args);
+        assert_eq!(key, Some(b"myset" as &[u8]));
+
+        let args = [bytes::Bytes::from("myset")];
+        let key = extract_first_key("SMEMBERS", &args);
+        assert_eq!(key, Some(b"myset" as &[u8]));
+    }
+
+    #[test]
+    fn test_key_extraction_sorted_set_commands() {
+        // Sorted set commands: key is first arg
+        let args = [
+            bytes::Bytes::from("myzset"),
+            bytes::Bytes::from("1"),
+            bytes::Bytes::from("member"),
+        ];
+        let key = extract_first_key("ZADD", &args);
+        assert_eq!(key, Some(b"myzset" as &[u8]));
+
+        let args = [bytes::Bytes::from("myzset")];
+        let key = extract_first_key("ZCARD", &args);
+        assert_eq!(key, Some(b"myzset" as &[u8]));
+    }
 }
 
 /// CLUSTER NODES
@@ -678,4 +896,238 @@ pub fn cluster_dispatch(
             "Unknown CLUSTER subcommand '{subcommand}'"
         ))),
     }
+}
+
+/// Check if this node owns a given slot
+///
+/// Returns Ok(true) if this node owns the slot
+/// Returns Ok(false) if slot is not assigned or assigned to another node
+/// Returns Err if cluster manager is not available
+pub async fn check_slot_ownership(ctx: &CommandContext, slot: u16) -> Result<bool, CommandError> {
+    let Some(cluster_mgr) = ctx.cluster_manager() else {
+        // Cluster mode not enabled - treat as owning all slots
+        return Ok(true);
+    };
+
+    let state = cluster_mgr.state().await;
+    if let Some(owner_id) = state.get_slot_node(slot) {
+        Ok(owner_id == &state.my_id)
+    } else {
+        // Slot not assigned to anyone
+        Ok(false)
+    }
+}
+
+/// Check if a slot is currently being migrated
+///
+/// TODO: Implement slot migration tracking
+/// For now, always returns false (no migration in progress)
+#[allow(clippy::unused_async)]
+pub fn is_slot_migrating(_ctx: &CommandContext, _slot: u16) -> bool {
+    // TODO: Implement migration state tracking
+    // This will require adding migration state to ClusterState:
+    // - migrating_slots: HashMap<u16, NodeId> (slot -> target node)
+    // - importing_slots: HashMap<u16, NodeId> (slot -> source node)
+    false
+}
+
+/// Get the redirect information for a slot
+///
+/// Returns None if this node owns the slot or cluster mode is disabled
+/// Returns Some((host, port, is_migration)) where is_migration indicates
+/// whether this is a temporary ASK redirect (true) or permanent MOVED (false)
+pub async fn get_slot_redirect(
+    ctx: &CommandContext,
+    slot: u16,
+) -> Result<Option<(String, u16, bool)>, CommandError> {
+    let Some(cluster_mgr) = ctx.cluster_manager() else {
+        // Cluster mode not enabled - no redirects
+        return Ok(None);
+    };
+
+    let state = cluster_mgr.state().await;
+
+    // Check if slot is assigned
+    let Some(owner_id) = state.get_slot_node(slot) else {
+        // Slot not assigned to anyone - this is an error in production
+        // but for now we'll accept it as belonging to this node
+        return Ok(None);
+    };
+
+    // Check if we own this slot
+    if owner_id == &state.my_id {
+        // Check if slot is being migrated away
+        if is_slot_migrating(ctx, slot) {
+            // TODO: Get target node info and return ASK redirect
+            // For now, we own the slot
+            return Ok(None);
+        }
+        return Ok(None);
+    }
+
+    // Slot belongs to another node - get node info for redirect
+    let Some(node) = state.nodes.get(owner_id) else {
+        // Node not found - this shouldn't happen
+        return Err(CommandError::Internal(format!(
+            "Slot {slot} assigned to unknown node {owner_id}"
+        )));
+    };
+
+    // Return MOVED redirect (permanent)
+    let host = node.addr.ip().to_string();
+    let port = node.addr.port();
+    Ok(Some((host, port, false)))
+}
+
+/// Check if a command needs cluster redirect checking
+///
+/// Returns true for commands that access keys and should be checked
+/// Returns false for commands that don't access keys or are cluster-related
+pub fn should_check_redirect(command_name: &str) -> bool {
+    // Don't check cluster management commands
+    if matches!(
+        command_name,
+        "CLUSTER" | "ASKING" | "MIGRATE" | "READONLY" | "READWRITE"
+    ) {
+        return false;
+    }
+
+    // Don't check connection/server commands that don't access keys
+    if matches!(
+        command_name,
+        "AUTH"
+            | "ECHO"
+            | "PING"
+            | "QUIT"
+            | "SELECT"
+            | "INFO"
+            | "CONFIG"
+            | "CLIENT"
+            | "COMMAND"
+            | "HELLO"
+            | "RESET"
+            | "SHUTDOWN"
+            | "TIME"
+            | "DBSIZE"
+            | "FLUSHDB"
+            | "FLUSHALL"
+            | "SAVE"
+            | "BGSAVE"
+            | "LASTSAVE"
+            | "ROLE"
+            | "REPLICAOF"
+            | "SLAVEOF"
+            | "PSYNC"
+            | "REPLCONF"
+            | "WAIT"
+            | "MULTI"
+            | "EXEC"
+            | "DISCARD"
+            | "WATCH"
+            | "UNWATCH"
+            | "SUBSCRIBE"
+            | "UNSUBSCRIBE"
+            | "PSUBSCRIBE"
+            | "PUNSUBSCRIBE"
+            | "PUBLISH"
+            | "PUBSUB"
+    ) {
+        return false;
+    }
+
+    // All other commands access keys and should be checked
+    true
+}
+
+/// Extract the first key from command arguments
+///
+/// This is a simplified implementation that works for most single-key commands.
+/// Multi-key commands may need special handling.
+///
+/// Returns None if the command has no keys or the key cannot be extracted
+pub fn extract_first_key<'a>(command_name: &str, args: &'a [bytes::Bytes]) -> Option<&'a [u8]> {
+    // Most commands have the key as the first argument
+    // Special cases:
+    match command_name {
+        // Commands with no keys
+        "PING" | "ECHO" | "QUIT" | "SELECT" | "AUTH" | "INFO" => None,
+
+        // EVAL and EVALSHA: EVAL script numkeys key [key ...] arg [arg ...]
+        // Key is at position 2 if numkeys > 0
+        "EVAL" | "EVALSHA" => {
+            if args.len() >= 3 {
+                // Try to parse numkeys
+                if let Ok(numkeys_str) = std::str::from_utf8(&args[1]) {
+                    if let Ok(numkeys) = numkeys_str.parse::<usize>() {
+                        if numkeys > 0 && args.len() > 2 {
+                            return Some(&args[2]);
+                        }
+                    }
+                }
+            }
+            None
+        }
+
+        // Default: first argument is the key
+        _ => args.first().map(|b| b.as_ref()),
+    }
+}
+
+/// Check for cluster redirect before executing a command (synchronous wrapper)
+///
+/// This function is called before command execution to check if the command
+/// should be redirected to another node. It uses `block_in_place` to make
+/// async cluster lookups work in a sync context.
+///
+/// Returns:
+/// - Ok(None) if no redirect needed (this node owns the slot or cluster mode disabled)
+/// - Err(CommandError::Moved/Ask) if redirect needed
+pub fn check_cluster_redirect(
+    ctx: &CommandContext,
+    command_name: &str,
+    args: &[bytes::Bytes],
+) -> Result<(), CommandError> {
+    // Skip redirect check if:
+    // 1. Cluster mode not enabled
+    // 2. Command doesn't access keys
+    // 3. ASKING flag is set (allows access to migrating slots)
+
+    if ctx.cluster_manager().is_none() {
+        return Ok(());
+    }
+
+    if !should_check_redirect(command_name) {
+        return Ok(());
+    }
+
+    if ctx.is_asking() {
+        // ASKING flag allows access to slots being migrated
+        // The flag will be cleared after this command
+        return Ok(());
+    }
+
+    // Extract the key from the command
+    let Some(key) = extract_first_key(command_name, args) else {
+        // No key to check
+        return Ok(());
+    };
+
+    // Calculate the slot for this key
+    let slot = key_hash_slot(key);
+
+    // Check if we need to redirect using block_in_place for async cluster lookup
+    let redirect_result = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(get_slot_redirect(ctx, slot))
+    })?;
+
+    if let Some((host, port, is_migration)) = redirect_result {
+        if is_migration {
+            // ASK redirect (temporary - slot being migrated)
+            return Err(CommandError::Ask { slot, host, port });
+        }
+        // MOVED redirect (permanent - slot belongs to another node)
+        return Err(CommandError::Moved { slot, host, port });
+    }
+
+    Ok(())
 }

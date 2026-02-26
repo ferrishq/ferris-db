@@ -91,6 +91,33 @@ pub enum CommandError {
         /// The response to send before entering streaming mode
         response: RespValue,
     },
+
+    /// MOVED redirect - slot has permanently moved to another node.
+    /// The client should update its slot mapping and retry.
+    /// Format: MOVED <slot> <host>:<port>
+    #[error("MOVED {slot} {host}:{port}")]
+    Moved {
+        /// The slot number (0-16383)
+        slot: u16,
+        /// The hostname or IP address of the node that owns the slot
+        host: String,
+        /// The port number of the node that owns the slot
+        port: u16,
+    },
+
+    /// ASK redirect - slot is being migrated to another node.
+    /// The client must send ASKING first, then retry the command.
+    /// This is temporary during slot migration.
+    /// Format: ASK <slot> <host>:<port>
+    #[error("ASK {slot} {host}:{port}")]
+    Ask {
+        /// The slot number (0-16383)
+        slot: u16,
+        /// The hostname or IP address of the node receiving the slot
+        host: String,
+        /// The port number of the node receiving the slot
+        port: u16,
+    },
 }
 
 impl CommandError {
@@ -117,5 +144,31 @@ mod tests {
         let err = CommandError::UnknownCommand("FOO".to_string());
         assert!(err.to_string().contains("unknown command"));
         assert!(err.to_string().contains("FOO"));
+    }
+
+    #[test]
+    fn test_moved_error() {
+        let err = CommandError::Moved {
+            slot: 3999,
+            host: "127.0.0.1".to_string(),
+            port: 6381,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("MOVED"));
+        assert!(msg.contains("3999"));
+        assert!(msg.contains("127.0.0.1:6381"));
+    }
+
+    #[test]
+    fn test_ask_error() {
+        let err = CommandError::Ask {
+            slot: 12345,
+            host: "192.168.1.100".to_string(),
+            port: 7000,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("ASK"));
+        assert!(msg.contains("12345"));
+        assert!(msg.contains("192.168.1.100:7000"));
     }
 }

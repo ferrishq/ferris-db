@@ -27,6 +27,11 @@ impl CommandExecutor {
         // Set the current command name for propagation
         ctx.set_current_command(cmd.name.clone());
 
+        // Check for cluster redirect (MOVED/ASK errors)
+        // This must happen before other checks so clients can be redirected
+        // even if the command would otherwise fail (e.g., wrong arity)
+        crate::cluster::check_cluster_redirect(ctx, &cmd.name, &cmd.args)?;
+
         // Check if this is a write command on a read-only replica
         // Allow writes if we're applying replicated commands from the leader
         if spec.flags.write && ctx.is_replica() && !ctx.is_applying_replication() {
@@ -52,7 +57,13 @@ impl CommandExecutor {
             .collect();
 
         // Execute the handler
-        (spec.handler)(ctx, &args)
+        let result = (spec.handler)(ctx, &args);
+
+        // Clear ASKING flag after command execution (per Redis protocol)
+        // The flag is only valid for one command after ASKING is called
+        ctx.clear_asking();
+
+        result
     }
 
     /// Get the command registry

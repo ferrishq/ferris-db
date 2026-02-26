@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
-> **Status**: Phase 4 IN PROGRESS 🚧 - Cluster foundation complete  
-> **Last Updated**: 2026-02-26 (226 commands, 2761 tests, Phases 1-3 COMPLETE, Phase 4 started)  
+> **Status**: Phase 4 IN PROGRESS 🚧 - Cluster redirects implemented  
+> **Last Updated**: 2026-02-26 (226 commands, 2045 tests, Phases 1-3 COMPLETE, Phase 4 30% complete)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -13,11 +13,11 @@
 | **Phase 1: Core Server** | ✅ Complete | 100% | 226 commands, RESP2/3, all data types, TTL, memory management |
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
-| **Phase 4: Cluster** | 🚧 In Progress | 20% | Hash slots ✅, CLUSTER commands ✅, topology (TODO) |
+| **Phase 4: Cluster** | 🚧 In Progress | 30% | Hash slots ✅, CLUSTER commands ✅, Redirects ✅, topology (TODO) |
 | **Phase 5: Distributed Locks & Queues** | ⏳ Planned | 0% | DLOCK, DQUEUE, fencing tokens |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
-**Total Test Coverage:** 2,761 tests passing ✅  
+**Total Test Coverage:** 2,045 tests passing ✅  
 **Redis Compatibility:** ~48% command coverage (226/469 commands)
 
 ---
@@ -546,7 +546,7 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 
 **Goal**: Horizontal scaling via hash-slot partitioning with automatic failover.
 
-**Status**: 🚧 Foundation Complete (20% - Hash slots and basic commands)
+**Status**: 🚧 Foundation Complete (30% - Hash slots, basic commands, and redirects)
 
 ### 4.1 Hash Slot Infrastructure ✅ COMPLETE
 - [x] **Tests**: Key routed to correct slot (8 unit tests)
@@ -569,17 +569,30 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] CLUSTER ADDSLOTS (not enabled error)
 - [x] CLUSTER MEET (not enabled error)
 
-### 4.3-4.7 Advanced Cluster Features (Not Started)
-- [ ] **Tests**: MOVED redirect works
-- [ ] **Tests**: ASK redirect during migration
+### 4.3 Cluster Redirects ✅ COMPLETE
+- [x] **Tests**: MOVED error format correct (15 tests)
+- [x] **Tests**: ASK error format correct
+- [x] **Tests**: ASKING command sets flag
+- [x] **Tests**: ASKING flag cleared after command
+- [x] **Tests**: Key extraction works for all command types
+- [x] **Tests**: Redirect check skipped for non-key commands
+- [x] MOVED/ASK error types in CommandError
+- [x] Slot ownership checking helper functions
+- [x] Key extraction from command arguments
+- [x] ASKING command (allows access to migrating slots)
+- [x] MIGRATE command (argument parsing - execution TODO)
+- [x] Redirect logic integrated into command executor
+- [x] ASKING flag lifecycle management
+
+### 4.4-4.7 Advanced Cluster Features (Not Started)
 - [ ] **Tests**: Gossip propagates node state
 - [ ] **Tests**: Automatic failover on master failure
 - [ ] **Tests**: Slot migration under load
 - [ ] **Tests**: Cross-slot error for multi-key commands
 - [ ] Cluster topology management (multi-node)
 - [ ] Gossip protocol for node discovery
-- [ ] MOVED/ASK redirects for client routing
-- [ ] Slot migration protocol
+- [ ] Complete MIGRATE command execution
+- [ ] Slot migration protocol (MIGRATING/IMPORTING states)
 - [ ] Automatic failover
 - [ ] Replica promotion
 
