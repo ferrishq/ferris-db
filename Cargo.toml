@@ -12,6 +12,7 @@ members = [
     "ferris-queue",
     "ferris-lock",
     "ferris-test-utils",
+    "parity-tests",
 ]
 
 [workspace.package]
