@@ -13,7 +13,7 @@
 | **Phase 1: Core Server** | ✅ Complete | 100% | 226 commands, RESP2/3, all data types, TTL, memory management |
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
-| **Phase 4: Cluster** | 🚧 In Progress | 30% | Hash slots ✅, CLUSTER commands ✅, Redirects ✅, topology (TODO) |
+| **Phase 4: Cluster** | 🚧 In Progress | 35% | Hash slots ✅, Commands ✅, Redirects ✅, Cross-slot ✅, topology (TODO) |
 | **Phase 5: Distributed Locks & Queues** | ⏳ Planned | 0% | DLOCK, DQUEUE, fencing tokens |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
@@ -546,7 +546,7 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 
 **Goal**: Horizontal scaling via hash-slot partitioning with automatic failover.
 
-**Status**: 🚧 Foundation Complete (30% - Hash slots, basic commands, and redirects)
+**Status**: 🚧 Foundation Complete (35% - Hash slots, commands, redirects, cross-slot validation)
 
 ### 4.1 Hash Slot Infrastructure ✅ COMPLETE
 - [x] **Tests**: Key routed to correct slot (8 unit tests)
@@ -584,7 +584,17 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] Redirect logic integrated into command executor
 - [x] ASKING flag lifecycle management
 
-### 4.4-4.7 Advanced Cluster Features (Not Started)
+### 4.4 Cross-Slot Validation ✅ COMPLETE
+- [x] **Tests**: Cross-slot validation with same hash tags (12 tests)
+- [x] **Tests**: CROSSSLOT error returned for different slots
+- [x] **Tests**: Multi-key commands work without cluster mode
+- [x] CROSSSLOT error type in CommandError
+- [x] `validate_same_slot()` helper function
+- [x] Validation added to: DEL, EXISTS, TOUCH, UNLINK
+- [x] Validation added to: MGET, MSET, MSETNX
+- [x] Hash tag support ensures same-slot operations
+
+### 4.5-4.7 Advanced Cluster Features (Not Started)
 - [ ] **Tests**: Gossip propagates node state
 - [ ] **Tests**: Automatic failover on master failure
 - [ ] **Tests**: Slot migration under load

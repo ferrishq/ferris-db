@@ -118,6 +118,13 @@ pub enum CommandError {
         /// The port number of the node receiving the slot
         port: u16,
     },
+
+    /// CROSSSLOT error - keys in a multi-key operation don't hash to the same slot.
+    /// This error is returned in cluster mode when a multi-key command
+    /// tries to access keys from different hash slots.
+    /// Format: CROSSSLOT Keys in request don't hash to the same slot
+    #[error("CROSSSLOT Keys in request don't hash to the same slot")]
+    CrossSlot,
 }
 
 impl CommandError {
@@ -170,5 +177,13 @@ mod tests {
         assert!(msg.contains("ASK"));
         assert!(msg.contains("12345"));
         assert!(msg.contains("192.168.1.100:7000"));
+    }
+
+    #[test]
+    fn test_crossslot_error() {
+        let err = CommandError::CrossSlot;
+        let msg = err.to_string();
+        assert!(msg.contains("CROSSSLOT"));
+        assert!(msg.contains("Keys in request don't hash to the same slot"));
     }
 }

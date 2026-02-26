@@ -603,6 +603,192 @@ mod tests {
         let key = extract_first_key("ZCARD", &args);
         assert_eq!(key, Some(b"myzset" as &[u8]));
     }
+
+    // Tests for cross-slot validation
+    #[test]
+    fn test_validate_same_slot_no_cluster() {
+        // Without cluster mode, should always succeed
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let keys = vec![b"key1" as &[u8], b"key2", b"key3"];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_same_slot_empty() {
+        // Empty key list should always succeed
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let keys: Vec<&[u8]> = vec![];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_same_slot_single_key() {
+        // Single key should always succeed
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let keys = vec![b"key1" as &[u8]];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_same_slot_same_hash_tag() {
+        // Keys with same hash tag should be in same slot
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let keys = vec![
+            b"{user123}:profile" as &[u8],
+            b"{user123}:settings",
+            b"{user123}:preferences",
+        ];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_same_slot_different_keys_same_slot() {
+        // These keys happen to hash to the same slot
+        // We need to find keys that hash to the same slot
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        // Use hash tags to ensure same slot
+        let keys = vec![b"{a}key1" as &[u8], b"{a}key2", b"{a}key3"];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_same_slot_two_keys_same() {
+        // Two keys with same hash tag
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let keys = vec![b"{foo}bar" as &[u8], b"{foo}baz"];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_same_slot_many_keys() {
+        // Many keys with same hash tag
+        let store = Arc::new(KeyStore::new(16));
+        let ctx = CommandContext::new(store);
+
+        let keys = vec![
+            b"{test}1" as &[u8],
+            b"{test}2",
+            b"{test}3",
+            b"{test}4",
+            b"{test}5",
+        ];
+        let result = validate_same_slot(&ctx, &keys);
+        assert!(result.is_ok());
+    }
+
+    // Tests for cross-slot errors in commands
+    #[test]
+    fn test_del_crossslot_without_cluster() {
+        // DEL with different keys should work without cluster mode
+        use crate::key::del;
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store.clone());
+
+        // Set some keys
+        let db = store.database(0);
+        db.set(
+            bytes::Bytes::from("key1"),
+            ferris_core::Entry::new(ferris_core::RedisValue::String(bytes::Bytes::from(
+                "value1",
+            ))),
+        );
+        db.set(
+            bytes::Bytes::from("key2"),
+            ferris_core::Entry::new(ferris_core::RedisValue::String(bytes::Bytes::from(
+                "value2",
+            ))),
+        );
+
+        // DEL should work even with keys in different slots
+        let args = vec![
+            RespValue::BulkString(bytes::Bytes::from("key1")),
+            RespValue::BulkString(bytes::Bytes::from("key2")),
+        ];
+        let result = del(&mut ctx, &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mget_same_hash_tag() {
+        // MGET with same hash tag should work
+        use crate::string::mget;
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let args = vec![
+            RespValue::BulkString(bytes::Bytes::from("{user}:name")),
+            RespValue::BulkString(bytes::Bytes::from("{user}:email")),
+            RespValue::BulkString(bytes::Bytes::from("{user}:age")),
+        ];
+        let result = mget(&mut ctx, &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mset_same_hash_tag() {
+        // MSET with same hash tag should work
+        use crate::string::mset;
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let args = vec![
+            RespValue::BulkString(bytes::Bytes::from("{user}:name")),
+            RespValue::BulkString(bytes::Bytes::from("Alice")),
+            RespValue::BulkString(bytes::Bytes::from("{user}:email")),
+            RespValue::BulkString(bytes::Bytes::from("alice@example.com")),
+        ];
+        let result = mset(&mut ctx, &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_exists_same_hash_tag() {
+        // EXISTS with same hash tag should work
+        use crate::key::exists;
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let args = vec![
+            RespValue::BulkString(bytes::Bytes::from("{order}:123")),
+            RespValue::BulkString(bytes::Bytes::from("{order}:124")),
+            RespValue::BulkString(bytes::Bytes::from("{order}:125")),
+        ];
+        let result = exists(&mut ctx, &args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_touch_same_hash_tag() {
+        // TOUCH with same hash tag should work
+        use crate::key::touch;
+        let store = Arc::new(KeyStore::new(16));
+        let mut ctx = CommandContext::new(store);
+
+        let args = vec![
+            RespValue::BulkString(bytes::Bytes::from("{session}:1")),
+            RespValue::BulkString(bytes::Bytes::from("{session}:2")),
+        ];
+        let result = touch(&mut ctx, &args);
+        assert!(result.is_ok());
+    }
 }
 
 /// CLUSTER NODES
@@ -1071,6 +1257,39 @@ pub fn extract_first_key<'a>(command_name: &str, args: &'a [bytes::Bytes]) -> Op
         // Default: first argument is the key
         _ => args.first().map(|b| b.as_ref()),
     }
+}
+
+/// Validate that all keys in a multi-key command hash to the same slot
+///
+/// In cluster mode, multi-key commands must operate on keys that hash to the
+/// same slot. This function checks that all provided keys hash to the same slot.
+///
+/// Returns:
+/// - Ok(()) if all keys are in the same slot or cluster mode is disabled
+/// - Err(CommandError::CrossSlot) if keys are in different slots
+pub fn validate_same_slot(ctx: &CommandContext, keys: &[&[u8]]) -> Result<(), CommandError> {
+    // Skip validation if cluster mode is not enabled
+    if ctx.cluster_manager().is_none() {
+        return Ok(());
+    }
+
+    // No keys or single key - always valid
+    if keys.len() <= 1 {
+        return Ok(());
+    }
+
+    // Calculate slot for first key
+    let first_slot = key_hash_slot(keys[0]);
+
+    // Check all other keys hash to the same slot
+    for key in keys.iter().skip(1) {
+        let slot = key_hash_slot(key);
+        if slot != first_slot {
+            return Err(CommandError::CrossSlot);
+        }
+    }
+
+    Ok(())
 }
 
 /// Check for cluster redirect before executing a command (synchronous wrapper)

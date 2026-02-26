@@ -83,6 +83,13 @@ pub fn del(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         return Err(CommandError::WrongArity("DEL".to_string()));
     }
 
+    // Validate all keys are in the same slot (cluster mode)
+    let keys: Vec<&[u8]> = args
+        .iter()
+        .filter_map(|arg| arg.as_bytes().map(|b| b.as_ref()))
+        .collect();
+    crate::cluster::validate_same_slot(ctx, &keys)?;
+
     let db = ctx.store().database(ctx.selected_db());
     let mut deleted = 0i64;
 
@@ -120,6 +127,13 @@ pub fn exists(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.is_empty() {
         return Err(CommandError::WrongArity("EXISTS".to_string()));
     }
+
+    // Validate all keys are in the same slot (cluster mode)
+    let keys: Vec<&[u8]> = args
+        .iter()
+        .filter_map(|arg| arg.as_bytes().map(|b| b.as_ref()))
+        .collect();
+    crate::cluster::validate_same_slot(ctx, &keys)?;
 
     let db = ctx.store().database(ctx.selected_db());
     let mut count = 0i64;
@@ -691,6 +705,13 @@ pub fn touch(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.is_empty() {
         return Err(CommandError::WrongArity("TOUCH".to_string()));
     }
+
+    // Validate all keys are in the same slot (cluster mode)
+    let keys: Vec<&[u8]> = args
+        .iter()
+        .filter_map(|arg| arg.as_bytes().map(|b| b.as_ref()))
+        .collect();
+    crate::cluster::validate_same_slot(ctx, &keys)?;
 
     let db = ctx.store().database(ctx.selected_db());
     let mut count = 0i64;

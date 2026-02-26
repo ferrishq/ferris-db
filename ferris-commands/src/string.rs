@@ -333,6 +333,13 @@ pub fn mget(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         return Err(CommandError::WrongArity("MGET".to_string()));
     }
 
+    // Validate all keys are in the same slot (cluster mode)
+    let keys: Vec<&[u8]> = args
+        .iter()
+        .filter_map(|arg| arg.as_bytes().map(|b| b.as_ref()))
+        .collect();
+    crate::cluster::validate_same_slot(ctx, &keys)?;
+
     let db = ctx.store().database(ctx.selected_db());
     let mut results = Vec::with_capacity(args.len());
 
@@ -367,6 +374,14 @@ pub fn mset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         return Err(CommandError::WrongArity("MSET".to_string()));
     }
 
+    // Validate all keys are in the same slot (cluster mode)
+    let keys: Vec<&[u8]> = args
+        .iter()
+        .step_by(2)
+        .filter_map(|arg| arg.as_bytes().map(|b| b.as_ref()))
+        .collect();
+    crate::cluster::validate_same_slot(ctx, &keys)?;
+
     let db = ctx.store().database(ctx.selected_db());
 
     for chunk in args.chunks(2) {
@@ -390,6 +405,14 @@ pub fn msetnx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 || args.len() % 2 != 0 {
         return Err(CommandError::WrongArity("MSETNX".to_string()));
     }
+
+    // Validate all keys are in the same slot (cluster mode)
+    let keys: Vec<&[u8]> = args
+        .iter()
+        .step_by(2)
+        .filter_map(|arg| arg.as_bytes().map(|b| b.as_ref()))
+        .collect();
+    crate::cluster::validate_same_slot(ctx, &keys)?;
 
     let db = ctx.store().database(ctx.selected_db());
 
