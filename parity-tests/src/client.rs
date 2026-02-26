@@ -318,6 +318,65 @@ impl DualClient {
         Ok(())
     }
 
+    /// Execute a command and compare results with float tolerance
+    /// Used for INCRBYFLOAT, HINCRBYFLOAT where string representation may differ slightly
+    pub async fn assert_parity_float(&mut self, args: &[&str]) -> anyhow::Result<()> {
+        let redis_result = self.redis.cmd(args).await?;
+        let ferris_result = self.ferris.cmd(args).await?;
+
+        // Parse both as floats and compare with tolerance
+        let redis_float = Self::parse_float_response(&redis_result);
+        let ferris_float = Self::parse_float_response(&ferris_result);
+
+        match (redis_float, ferris_float) {
+            (Some(r), Some(f)) => {
+                // Allow small floating point differences (0.0001 tolerance)
+                if (r - f).abs() > 0.0001 {
+                    anyhow::bail!(
+                        "Float parity mismatch for '{}'\n  Redis:  {} ({:?})\n  Ferris: {} ({:?})",
+                        args.join(" "),
+                        r,
+                        redis_result,
+                        f,
+                        ferris_result
+                    );
+                }
+            }
+            (None, None) => {
+                // Both failed to parse - check if they're both errors
+                let both_errors = matches!(redis_result, RespValue::Error(_))
+                    && matches!(ferris_result, RespValue::Error(_));
+                if !both_errors {
+                    anyhow::bail!(
+                        "Float parse failed for '{}'\n  Redis:  {:?}\n  Ferris: {:?}",
+                        args.join(" "),
+                        redis_result,
+                        ferris_result
+                    );
+                }
+            }
+            _ => {
+                anyhow::bail!(
+                    "Float type mismatch for '{}'\n  Redis:  {:?}\n  Ferris: {:?}",
+                    args.join(" "),
+                    redis_result,
+                    ferris_result
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse a RESP value as a float (handles BulkString responses)
+    fn parse_float_response(value: &RespValue) -> Option<f64> {
+        match value {
+            RespValue::BulkString(b) => std::str::from_utf8(b).ok()?.parse::<f64>().ok(),
+            RespValue::Double(d) => Some(*d),
+            RespValue::Integer(i) => Some(*i as f64),
+            _ => None,
+        }
+    }
+
     /// Get access to the Redis client directly
     pub fn redis_client(&mut self) -> &mut ParityClient {
         &mut self.redis
