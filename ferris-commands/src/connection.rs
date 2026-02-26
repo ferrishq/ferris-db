@@ -800,3 +800,36 @@ mod tests {
         );
     }
 }
+
+/// READONLY
+///
+/// Enables read queries for a connection to a Redis Cluster replica node.
+/// In ferris-db, replicas are read-only by default for write commands,
+/// but this command exists for compatibility.
+///
+/// Time complexity: O(1)
+pub fn readonly(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if !args.is_empty() {
+        return Err(CommandError::WrongArity("READONLY".to_string()));
+    }
+
+    // In ferris-db, replica read-only mode is always enforced for writes.
+    // This command is a no-op but returns OK for compatibility.
+    Ok(RespValue::ok())
+}
+
+/// READWRITE
+///
+/// Disables read queries for a connection to a Redis Cluster replica node.
+/// In ferris-db, this is a no-op since we don't have a read-only connection mode.
+///
+/// Time complexity: O(1)
+pub fn readwrite(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if !args.is_empty() {
+        return Err(CommandError::WrongArity("READWRITE".to_string()));
+    }
+
+    // In ferris-db, connections are always read-write capable on the master.
+    // This command is a no-op but returns OK for compatibility.
+    Ok(RespValue::ok())
+}

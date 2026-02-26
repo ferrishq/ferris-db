@@ -226,7 +226,7 @@ pub fn command(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         Some("COUNT") => {
             // Actual count of commands registered in register_all_commands.
             // Keep this in sync when adding/removing commands from registry.rs.
-            Ok(RespValue::Integer(142))
+            Ok(RespValue::Integer(229))
         }
         Some("DOCS") => {
             // Not fully implemented yet

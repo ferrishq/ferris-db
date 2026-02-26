@@ -376,6 +376,24 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "AUTH",
         cmd("AUTH", -2, fast_read_flags(), crate::connection::auth),
     );
+    registry.register(
+        "READONLY",
+        cmd(
+            "READONLY",
+            1,
+            fast_read_flags(),
+            crate::connection::readonly,
+        ),
+    );
+    registry.register(
+        "READWRITE",
+        cmd(
+            "READWRITE",
+            1,
+            fast_read_flags(),
+            crate::connection::readwrite,
+        ),
+    );
 
     // String commands
     registry.register("GET", cmd("GET", 2, fast_read_flags(), crate::string::get));
