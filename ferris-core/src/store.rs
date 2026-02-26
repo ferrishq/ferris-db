@@ -22,6 +22,10 @@ pub const DEFAULT_NUM_DATABASES: usize = 16;
 /// Default number of samples for LRU/LFU eviction
 pub const DEFAULT_EVICTION_SAMPLES: usize = 5;
 
+/// Maximum number of eviction iterations per set operation
+/// This prevents long blocking loops in the eviction path
+const MAX_EVICTION_ITERATIONS: usize = 100;
+
 /// Result of a set operation that may require eviction
 #[derive(Debug)]
 pub enum SetResult {
@@ -163,8 +167,11 @@ impl Database {
             // Try to free enough memory
             let bytes_to_free = self.memory_tracker.bytes_to_free(net_increase);
             let mut freed = 0;
+            let mut iterations = 0;
 
-            while freed < bytes_to_free {
+            // Limit eviction iterations to prevent long blocking loops
+            // This caps worst-case latency at the cost of potentially not freeing enough memory
+            while freed < bytes_to_free && iterations < MAX_EVICTION_ITERATIONS {
                 if let Some((victim_key, victim_size)) = self.select_victim(policy) {
                     if self.delete_internal(&victim_key) {
                         self.memory_tracker.record_eviction();
@@ -172,11 +179,14 @@ impl Database {
                     }
                 } else {
                     // No more victims available
-                    if self.memory_tracker.should_evict(net_increase) {
-                        return SetResult::OutOfMemory;
-                    }
                     break;
                 }
+                iterations += 1;
+            }
+
+            // After eviction, check if we freed enough
+            if self.memory_tracker.should_evict(net_increase) {
+                return SetResult::OutOfMemory;
             }
         }
 
