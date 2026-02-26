@@ -3,7 +3,7 @@
 
 use crate::{CommandContext, CommandError, CommandResult};
 use bytes::Bytes;
-use ferris_core::{Entry, RedisValue};
+use ferris_core::{Entry, RedisValue, UpdateAction};
 use ferris_protocol::RespValue;
 use std::collections::VecDeque;
 
@@ -72,30 +72,48 @@ pub fn lpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     let key = get_bytes(&args[0])?;
+
+    // Pre-parse all elements to avoid doing it inside the closure
+    let elements: Vec<Bytes> = args[1..].iter().map(get_bytes).collect::<Result<_, _>>()?;
+
     let db = ctx.store().database(ctx.selected_db());
 
-    let mut list = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                VecDeque::new()
-            } else {
-                match entry.value {
-                    RedisValue::List(l) => l,
-                    _ => return Err(CommandError::WrongType),
+    // Pre-calculate memory delta: each element adds (element_len + 24) bytes overhead
+    let memory_delta: isize = elements.iter().map(|e| (e.len() + 24) as isize).sum();
+
+    // Use atomic update to avoid separate get + set (single lock acquisition)
+    let result = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                // Key exists and not expired - modify in place
+                match &mut e.value {
+                    RedisValue::List(list) => {
+                        for elem in &elements {
+                            list.push_front(elem.clone());
+                        }
+                        let len = list.len() as i64;
+                        // Use KeepWithDelta for O(1) memory tracking
+                        (UpdateAction::KeepWithDelta(memory_delta), Ok(len))
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
                 }
             }
+            None => {
+                // Key doesn't exist or expired - create new list
+                let mut list = VecDeque::with_capacity(elements.len());
+                for elem in &elements {
+                    list.push_front(elem.clone());
+                }
+                let len = list.len() as i64;
+                (
+                    UpdateAction::Set(Entry::new(RedisValue::List(list))),
+                    Ok(len),
+                )
+            }
         }
-        None => VecDeque::new(),
-    };
+    });
 
-    for arg in &args[1..] {
-        let element = get_bytes(arg)?;
-        list.push_front(element);
-    }
-
-    let len = list.len() as i64;
-    db.set(key.clone(), Entry::new(RedisValue::List(list)));
+    let len = result?;
 
     // Notify any blocking waiters (BLPOP, BRPOP, etc.)
     ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
@@ -123,30 +141,48 @@ pub fn rpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     let key = get_bytes(&args[0])?;
+
+    // Pre-parse all elements to avoid doing it inside the closure
+    let elements: Vec<Bytes> = args[1..].iter().map(get_bytes).collect::<Result<_, _>>()?;
+
+    // Pre-calculate memory delta: each element adds (element_len + 24) bytes overhead
+    let memory_delta: isize = elements.iter().map(|e| (e.len() + 24) as isize).sum();
+
     let db = ctx.store().database(ctx.selected_db());
 
-    let mut list = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                VecDeque::new()
-            } else {
-                match entry.value {
-                    RedisValue::List(l) => l,
-                    _ => return Err(CommandError::WrongType),
+    // Use atomic update to avoid separate get + set (single lock acquisition)
+    let result = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                // Key exists and not expired - modify in place
+                match &mut e.value {
+                    RedisValue::List(list) => {
+                        for elem in &elements {
+                            list.push_back(elem.clone());
+                        }
+                        let len = list.len() as i64;
+                        // Use KeepWithDelta for O(1) memory tracking
+                        (UpdateAction::KeepWithDelta(memory_delta), Ok(len))
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
                 }
             }
+            None => {
+                // Key doesn't exist or expired - create new list
+                let mut list = VecDeque::with_capacity(elements.len());
+                for elem in &elements {
+                    list.push_back(elem.clone());
+                }
+                let len = list.len() as i64;
+                (
+                    UpdateAction::Set(Entry::new(RedisValue::List(list))),
+                    Ok(len),
+                )
+            }
         }
-        None => VecDeque::new(),
-    };
+    });
 
-    for arg in &args[1..] {
-        let element = get_bytes(arg)?;
-        list.push_back(element);
-    }
-
-    let len = list.len() as i64;
-    db.set(key.clone(), Entry::new(RedisValue::List(list)));
+    let len = result?;
 
     // Propagate to AOF and replication
     ctx.propagate_args(args);
@@ -173,35 +209,48 @@ pub fn lpushx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     let key = get_bytes(&args[0])?;
+
+    // Pre-parse all elements to avoid doing it inside the closure
+    let elements: Vec<Bytes> = args[1..].iter().map(get_bytes).collect::<Result<_, _>>()?;
+
+    // Pre-calculate memory delta: each element adds (element_len + 24) bytes overhead
+    let memory_delta: isize = elements.iter().map(|e| (e.len() + 24) as isize).sum();
+
     let db = ctx.store().database(ctx.selected_db());
 
-    let mut list = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                return Ok(RespValue::Integer(0));
+    // Use atomic update - only modify if key exists
+    let result = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                // Key exists and not expired - modify in place
+                match &mut e.value {
+                    RedisValue::List(list) => {
+                        for elem in &elements {
+                            list.push_front(elem.clone());
+                        }
+                        let len = list.len() as i64;
+                        // Use KeepWithDelta for O(1) memory tracking
+                        (UpdateAction::KeepWithDelta(memory_delta), Ok(len))
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
+                }
             }
-            match entry.value {
-                RedisValue::List(l) => l,
-                _ => return Err(CommandError::WrongType),
+            None => {
+                // Key doesn't exist or expired - return 0, don't create
+                (UpdateAction::Keep, Ok(0i64))
             }
         }
-        None => return Ok(RespValue::Integer(0)),
-    };
+    });
 
-    for arg in &args[1..] {
-        let element = get_bytes(arg)?;
-        list.push_front(element);
+    let len = result?;
+
+    if len > 0 {
+        // Propagate to AOF and replication only if we modified something
+        ctx.propagate_args(args);
+
+        // Notify any blocking waiters (BLPOP, BRPOP, etc.)
+        ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
     }
-
-    let len = list.len() as i64;
-    db.set(key.clone(), Entry::new(RedisValue::List(list)));
-
-    // Propagate to AOF and replication
-    ctx.propagate_args(args);
-
-    // Notify any blocking waiters (BLPOP, BRPOP, etc.)
-    ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
 
     Ok(RespValue::Integer(len))
 }
@@ -222,35 +271,48 @@ pub fn rpushx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     }
 
     let key = get_bytes(&args[0])?;
+
+    // Pre-parse all elements to avoid doing it inside the closure
+    let elements: Vec<Bytes> = args[1..].iter().map(get_bytes).collect::<Result<_, _>>()?;
+
+    // Pre-calculate memory delta: each element adds (element_len + 24) bytes overhead
+    let memory_delta: isize = elements.iter().map(|e| (e.len() + 24) as isize).sum();
+
     let db = ctx.store().database(ctx.selected_db());
 
-    let mut list = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                return Ok(RespValue::Integer(0));
+    // Use atomic update - only modify if key exists
+    let result = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                // Key exists and not expired - modify in place
+                match &mut e.value {
+                    RedisValue::List(list) => {
+                        for elem in &elements {
+                            list.push_back(elem.clone());
+                        }
+                        let len = list.len() as i64;
+                        // Use KeepWithDelta for O(1) memory tracking
+                        (UpdateAction::KeepWithDelta(memory_delta), Ok(len))
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
+                }
             }
-            match entry.value {
-                RedisValue::List(l) => l,
-                _ => return Err(CommandError::WrongType),
+            None => {
+                // Key doesn't exist or expired - return 0, don't create
+                (UpdateAction::Keep, Ok(0i64))
             }
         }
-        None => return Ok(RespValue::Integer(0)),
-    };
+    });
 
-    for arg in &args[1..] {
-        let element = get_bytes(arg)?;
-        list.push_back(element);
+    let len = result?;
+
+    if len > 0 {
+        // Propagate to AOF and replication only if we modified something
+        ctx.propagate_args(args);
+
+        // Notify any blocking waiters (BLPOP, BRPOP, etc.)
+        ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
     }
-
-    let len = list.len() as i64;
-    db.set(key.clone(), Entry::new(RedisValue::List(list)));
-
-    // Propagate to AOF and replication
-    ctx.propagate_args(args);
-
-    // Notify any blocking waiters (BLPOP, BRPOP, etc.)
-    ctx.blocking_registry().notify_key(ctx.selected_db(), &key);
 
     Ok(RespValue::Integer(len))
 }
@@ -284,74 +346,81 @@ pub fn lpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let db = ctx.store().database(ctx.selected_db());
 
-    let mut list = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                return Ok(if count.is_some() {
-                    RespValue::Null
-                } else {
-                    RespValue::Null
-                });
-            }
-            match entry.value {
-                RedisValue::List(l) => l,
-                _ => return Err(CommandError::WrongType),
-            }
-        }
-        None => {
-            return Ok(if count.is_some() {
-                RespValue::Null
-            } else {
-                RespValue::Null
-            });
-        }
-    };
-
-    match count {
-        None => {
-            // Single element mode
-            let element = list.pop_front();
-            cleanup_empty_list(db, &key, &list);
-            if !list.is_empty() {
-                db.set(key.clone(), Entry::new(RedisValue::List(list)));
-            }
-
-            if element.is_some() {
-                // Propagate to AOF and replication
-                ctx.propagate_args(args);
-            }
-
-            match element {
-                Some(e) => Ok(RespValue::BulkString(e)),
-                None => Ok(RespValue::Null),
-            }
-        }
-        Some(c) => {
-            let actual = c.min(list.len());
-            let mut results = Vec::with_capacity(actual);
-            for _ in 0..actual {
-                if let Some(e) = list.pop_front() {
-                    results.push(RespValue::BulkString(e));
+    // Use atomic update to avoid separate get + set
+    let result: Result<LpopResult, CommandError> = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                match &mut e.value {
+                    RedisValue::List(list) => {
+                        match count {
+                            None => {
+                                // Single element mode
+                                let element = list.pop_front();
+                                let delta = element
+                                    .as_ref()
+                                    .map(|e| -((e.len() + 24) as isize))
+                                    .unwrap_or(0);
+                                let action = if list.is_empty() {
+                                    UpdateAction::Delete
+                                } else {
+                                    UpdateAction::KeepWithDelta(delta)
+                                };
+                                (action, Ok(LpopResult::Single(element)))
+                            }
+                            Some(c) => {
+                                // Multi-element mode
+                                let actual = c.min(list.len());
+                                let mut results = Vec::with_capacity(actual);
+                                let mut delta: isize = 0;
+                                for _ in 0..actual {
+                                    if let Some(elem) = list.pop_front() {
+                                        delta -= (elem.len() + 24) as isize;
+                                        results.push(elem);
+                                    }
+                                }
+                                let action = if list.is_empty() {
+                                    UpdateAction::Delete
+                                } else {
+                                    UpdateAction::KeepWithDelta(delta)
+                                };
+                                (action, Ok(LpopResult::Multi(results)))
+                            }
+                        }
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
                 }
             }
-            cleanup_empty_list(db, &key, &list);
-            if !list.is_empty() {
-                db.set(key.clone(), Entry::new(RedisValue::List(list)));
-            }
-
-            if !results.is_empty() {
-                // Propagate to AOF and replication
-                ctx.propagate_args(args);
-            }
-
-            if results.is_empty() {
-                Ok(RespValue::Array(vec![]))
-            } else {
-                Ok(RespValue::Array(results))
+            None => {
+                // Key doesn't exist or expired
+                (UpdateAction::Keep, Ok(LpopResult::NotFound))
             }
         }
+    });
+
+    let lpop_result = result?;
+
+    match lpop_result {
+        LpopResult::Single(Some(elem)) => {
+            ctx.propagate_args(args);
+            Ok(RespValue::BulkString(elem))
+        }
+        LpopResult::Single(None) => Ok(RespValue::Null),
+        LpopResult::Multi(results) if !results.is_empty() => {
+            ctx.propagate_args(args);
+            Ok(RespValue::Array(
+                results.into_iter().map(RespValue::BulkString).collect(),
+            ))
+        }
+        LpopResult::Multi(_) => Ok(RespValue::Array(vec![])),
+        LpopResult::NotFound => Ok(RespValue::Null),
     }
+}
+
+/// Internal result type for LPOP/RPOP operations
+enum LpopResult {
+    Single(Option<Bytes>),
+    Multi(Vec<Bytes>),
+    NotFound,
 }
 
 // ---------------------------------------------------------------------------
@@ -383,62 +452,73 @@ pub fn rpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let db = ctx.store().database(ctx.selected_db());
 
-    let mut list = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                return Ok(RespValue::Null);
-            }
-            match entry.value {
-                RedisValue::List(l) => l,
-                _ => return Err(CommandError::WrongType),
-            }
-        }
-        None => return Ok(RespValue::Null),
-    };
-
-    match count {
-        None => {
-            let element = list.pop_back();
-            cleanup_empty_list(db, &key, &list);
-            if !list.is_empty() {
-                db.set(key.clone(), Entry::new(RedisValue::List(list)));
-            }
-
-            if element.is_some() {
-                // Propagate to AOF and replication
-                ctx.propagate_args(args);
-            }
-
-            match element {
-                Some(e) => Ok(RespValue::BulkString(e)),
-                None => Ok(RespValue::Null),
-            }
-        }
-        Some(c) => {
-            let actual = c.min(list.len());
-            let mut results = Vec::with_capacity(actual);
-            for _ in 0..actual {
-                if let Some(e) = list.pop_back() {
-                    results.push(RespValue::BulkString(e));
+    // Use atomic update to avoid separate get + set
+    let result: Result<LpopResult, CommandError> = db.update(key.clone(), |entry| {
+        match entry {
+            Some(e) => {
+                match &mut e.value {
+                    RedisValue::List(list) => {
+                        match count {
+                            None => {
+                                // Single element mode
+                                let element = list.pop_back();
+                                let delta = element
+                                    .as_ref()
+                                    .map(|e| -((e.len() + 24) as isize))
+                                    .unwrap_or(0);
+                                let action = if list.is_empty() {
+                                    UpdateAction::Delete
+                                } else {
+                                    UpdateAction::KeepWithDelta(delta)
+                                };
+                                (action, Ok(LpopResult::Single(element)))
+                            }
+                            Some(c) => {
+                                // Multi-element mode
+                                let actual = c.min(list.len());
+                                let mut results = Vec::with_capacity(actual);
+                                let mut delta: isize = 0;
+                                for _ in 0..actual {
+                                    if let Some(elem) = list.pop_back() {
+                                        delta -= (elem.len() + 24) as isize;
+                                        results.push(elem);
+                                    }
+                                }
+                                let action = if list.is_empty() {
+                                    UpdateAction::Delete
+                                } else {
+                                    UpdateAction::KeepWithDelta(delta)
+                                };
+                                (action, Ok(LpopResult::Multi(results)))
+                            }
+                        }
+                    }
+                    _ => (UpdateAction::Keep, Err(CommandError::WrongType)),
                 }
             }
-            cleanup_empty_list(db, &key, &list);
-            if !list.is_empty() {
-                db.set(key.clone(), Entry::new(RedisValue::List(list)));
-            }
-
-            if !results.is_empty() {
-                // Propagate to AOF and replication
-                ctx.propagate_args(args);
-            }
-
-            if results.is_empty() {
-                Ok(RespValue::Array(vec![]))
-            } else {
-                Ok(RespValue::Array(results))
+            None => {
+                // Key doesn't exist or expired
+                (UpdateAction::Keep, Ok(LpopResult::NotFound))
             }
         }
+    });
+
+    let rpop_result = result?;
+
+    match rpop_result {
+        LpopResult::Single(Some(elem)) => {
+            ctx.propagate_args(args);
+            Ok(RespValue::BulkString(elem))
+        }
+        LpopResult::Single(None) => Ok(RespValue::Null),
+        LpopResult::Multi(results) if !results.is_empty() => {
+            ctx.propagate_args(args);
+            Ok(RespValue::Array(
+                results.into_iter().map(RespValue::BulkString).collect(),
+            ))
+        }
+        LpopResult::Multi(_) => Ok(RespValue::Array(vec![])),
+        LpopResult::NotFound => Ok(RespValue::Null),
     }
 }
 

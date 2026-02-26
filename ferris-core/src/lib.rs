@@ -56,7 +56,7 @@ pub use blocking::BlockingRegistry;
 pub use expiry::ExpiryManager;
 pub use memory::{EvictionPolicy, MemoryTracker};
 pub use pubsub::{PubSubMessage, PubSubRegistry, SubscriberId};
-pub use store::{Database, KeyStore};
+pub use store::{Database, KeyStore, UpdateAction};
 pub use value::{
     Consumer, ConsumerGroup, Entry, PendingEntry, RedisValue, StreamData, StreamEntry, StreamId,
 };

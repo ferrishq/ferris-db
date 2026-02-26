@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/rust-lang/rust-artwork/master/logo/rust-logo-512x512.png" width="120" alt="Ferris">
+  <img src="docs/site/assets/ferris-db-logo.png" width="200" alt="ferris-db logo">
 </p>
 
 <h1 align="center">ferris-db</h1>

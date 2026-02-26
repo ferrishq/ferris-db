@@ -31,6 +31,20 @@ pub enum SetResult {
     OutOfMemory,
 }
 
+/// Action to take after an update operation
+#[derive(Debug)]
+pub enum UpdateAction {
+    /// Keep the entry as-is (modified in place), recalculate memory
+    Keep,
+    /// Keep the entry with a specific memory delta (positive = added, negative = removed)
+    /// Use this for collections where memory_usage() is O(n) to avoid expensive recalculation
+    KeepWithDelta(isize),
+    /// Replace with a new entry
+    Set(Entry),
+    /// Delete the key
+    Delete,
+}
+
 /// The main key-value store with multiple databases
 #[derive(Debug)]
 pub struct KeyStore {
@@ -392,6 +406,122 @@ impl Database {
         } else {
             false
         }
+    }
+
+    /// Atomically update an entry or insert a new one if it doesn't exist.
+    /// This is more efficient than get() + set() as it only acquires the lock once.
+    ///
+    /// The closure receives `Option<&mut Entry>`:
+    /// - `Some(&mut entry)` if the key exists and is not expired
+    /// - `None` if the key doesn't exist or is expired
+    ///
+    /// The closure returns `(UpdateAction, R)`:
+    /// - `UpdateAction::Keep` - keep the entry as-is (or as modified in place)
+    /// - `UpdateAction::Set(entry)` - replace with a new entry
+    /// - `UpdateAction::Delete` - delete the key
+    ///
+    /// Note: When `UpdateAction::Keep` is returned and entry was `None`, no key is created.
+    pub fn update<F, R>(&self, key: Bytes, f: F) -> R
+    where
+        F: FnOnce(Option<&mut Entry>) -> (UpdateAction, R),
+    {
+        use dashmap::mapref::entry::Entry as DashEntry;
+
+        match self.data.entry(key.clone()) {
+            DashEntry::Occupied(mut occupied) => {
+                // Check if expired first (cheap)
+                let is_expired = occupied.get().is_expired();
+                let (action, result) = if is_expired {
+                    f(None)
+                } else {
+                    f(Some(occupied.get_mut()))
+                };
+
+                match action {
+                    UpdateAction::Keep => {
+                        // Entry was modified in place, no memory tracking
+                        // Note: Caller should use KeepWithDelta for collections
+                        // to maintain accurate memory tracking
+                        if is_expired {
+                            // If expired and Keep, remove it
+                            let old_size = Self::entry_size(&key, occupied.get());
+                            occupied.remove();
+                            self.memory_tracker.subtract(old_size);
+                        } else {
+                            occupied.get_mut().increment_version();
+                        }
+                    }
+                    UpdateAction::KeepWithDelta(delta) => {
+                        // Entry was modified in place, apply memory delta directly
+                        // This is O(1) instead of O(n) for large collections
+                        if is_expired {
+                            // If expired, we need the full size to subtract
+                            let old_size = Self::entry_size(&key, occupied.get());
+                            occupied.remove();
+                            self.memory_tracker.subtract(old_size);
+                        } else {
+                            if delta > 0 {
+                                self.memory_tracker.add(delta as usize);
+                            } else if delta < 0 {
+                                self.memory_tracker.subtract((-delta) as usize);
+                            }
+                            occupied.get_mut().increment_version();
+                        }
+                    }
+                    UpdateAction::Set(mut entry) => {
+                        let old_size = Self::entry_size(&key, occupied.get());
+                        entry.increment_version();
+                        let new_size = Self::entry_size(&key, &entry);
+                        occupied.insert(entry);
+                        self.memory_tracker.subtract(old_size);
+                        self.memory_tracker.add(new_size);
+                    }
+                    UpdateAction::Delete => {
+                        let old_size = Self::entry_size(&key, occupied.get());
+                        occupied.remove();
+                        self.memory_tracker.subtract(old_size);
+                    }
+                }
+                result
+            }
+            DashEntry::Vacant(vacant) => {
+                let (action, result) = f(None);
+                match action {
+                    UpdateAction::Set(mut entry) => {
+                        entry.increment_version();
+                        let new_size = Self::entry_size(&key, &entry);
+                        vacant.insert(entry);
+                        self.memory_tracker.add(new_size);
+                    }
+                    UpdateAction::KeepWithDelta(_) | UpdateAction::Keep | UpdateAction::Delete => {
+                        // Keep/Delete/KeepWithDelta on vacant are no-ops
+                    }
+                }
+                result
+            }
+        }
+    }
+
+    /// Atomically modify an existing entry's value in place.
+    /// This is the most efficient method for modifying existing values as it
+    /// avoids cloning the value entirely.
+    ///
+    /// Returns None if the key doesn't exist or is expired.
+    /// Returns Some(R) with the result of the modification if successful.
+    ///
+    /// Note: This does NOT update memory tracking, so only use when size doesn't change.
+    pub fn modify_in_place<F, R>(&self, key: &[u8], f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Entry) -> R,
+    {
+        self.data.get_mut(key).and_then(|mut entry_ref| {
+            if entry_ref.is_expired() {
+                None
+            } else {
+                let result = f(entry_ref.value_mut());
+                Some(result)
+            }
+        })
     }
 
     /// Get the memory tracker for this database
