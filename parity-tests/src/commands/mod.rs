@@ -2,12 +2,14 @@
 //!
 //! Each submodule contains tests for a category of Redis commands.
 
+pub mod edge_cases;
 pub mod hash;
 pub mod key;
 pub mod list;
 pub mod server;
 pub mod set;
 pub mod sorted_set;
+pub mod sorted_set_edge;
 pub mod string;
 
 use crate::report::{CategoryReport, TestResult};

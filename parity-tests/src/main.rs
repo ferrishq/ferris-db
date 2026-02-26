@@ -6,7 +6,9 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::cast_possible_truncation)]
 
-use parity_tests::commands::{hash, key, list, server, set, sorted_set, string};
+use parity_tests::commands::{
+    edge_cases, hash, key, list, server, set, sorted_set, sorted_set_edge, string,
+};
 use parity_tests::report::ParityReport;
 use parity_tests::DualClient;
 
@@ -123,6 +125,26 @@ async fn main() -> anyhow::Result<()> {
         server_report.passed + server_report.failed
     );
     report.add_category(server_report);
+
+    // Edge cases
+    print!("  Edge Cases... ");
+    let edge_report = edge_cases::run_all(&mut client).await;
+    println!(
+        "{}/{} passed",
+        edge_report.passed,
+        edge_report.passed + edge_report.failed
+    );
+    report.add_category(edge_report);
+
+    // Sorted Set Edge Cases
+    print!("  Sorted Set Edge Cases... ");
+    let zset_edge_report = sorted_set_edge::run_all(&mut client).await;
+    println!(
+        "{}/{} passed",
+        zset_edge_report.passed,
+        zset_edge_report.passed + zset_edge_report.failed
+    );
+    report.add_category(zset_edge_report);
 
     // Update total duration
     report.duration_ms = start.elapsed().as_millis() as u64;
