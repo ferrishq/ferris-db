@@ -70,6 +70,7 @@ pub async fn handle_connection(
         pubsub_registry,
         aof_writer,
         replication_manager,
+        None, // cluster_manager - will be added later
     );
 
     // Create timeout sleep future if timeout is enabled

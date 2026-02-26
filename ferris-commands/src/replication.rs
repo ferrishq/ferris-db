@@ -124,6 +124,7 @@ pub fn replicaof(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult 
                     pubsub_registry,
                     aof_writer,
                     replication_manager,
+                    None, // cluster_manager
                 );
 
                 // Mark this context as applying replication so writes are allowed
@@ -572,6 +573,7 @@ mod tests {
             pubsub_registry,
             None,
             Some(replication_manager),
+        None,
         );
 
         let result = replicaof(
@@ -597,6 +599,7 @@ mod tests {
             pubsub_registry,
             None,
             Some(replication_manager),
+            None, // cluster_manager
         );
 
         let result = replicaof(
@@ -639,6 +642,7 @@ mod tests {
             pubsub_registry,
             None,
             Some(replication_manager),
+            None, // cluster_manager
         );
 
         let result = slaveof(

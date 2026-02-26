@@ -38,6 +38,7 @@ ordered-float = "4"
 
 # Hashing
 crc16 = "0.4"
+hex = "0.4"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

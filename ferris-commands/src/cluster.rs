@@ -111,26 +111,35 @@ pub fn cluster_keyslot(_ctx: &mut CommandContext, args: &[RespValue]) -> Command
 /// CLUSTER INFO
 ///
 /// Provides info about cluster state.
-/// For now, we return a basic response indicating cluster is disabled.
-pub fn cluster_info(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+pub fn cluster_info(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if !args.is_empty() {
         return Err(CommandError::WrongArity("CLUSTER INFO".to_string()));
     }
 
-    // For now, cluster mode is not enabled
-    let info = "cluster_state:fail\r\n\
-                cluster_slots_assigned:0\r\n\
-                cluster_slots_ok:0\r\n\
-                cluster_slots_pfail:0\r\n\
-                cluster_slots_fail:0\r\n\
-                cluster_known_nodes:1\r\n\
-                cluster_size:0\r\n\
-                cluster_current_epoch:0\r\n\
-                cluster_my_epoch:0\r\n\
-                cluster_stats_messages_sent:0\r\n\
-                cluster_stats_messages_received:0\r\n";
-
-    Ok(RespValue::BulkString(info.into()))
+    if let Some(cluster_mgr) = ctx.cluster_manager() {
+        // Use async block to get cluster state
+        let info = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let state = cluster_mgr.state().await;
+                state.info_string()
+            })
+        });
+        Ok(RespValue::BulkString(info.into()))
+    } else {
+        // Cluster mode not enabled
+        let info = "cluster_state:fail\r\n\
+                    cluster_slots_assigned:0\r\n\
+                    cluster_slots_ok:0\r\n\
+                    cluster_slots_pfail:0\r\n\
+                    cluster_slots_fail:0\r\n\
+                    cluster_known_nodes:1\r\n\
+                    cluster_size:0\r\n\
+                    cluster_current_epoch:0\r\n\
+                    cluster_my_epoch:0\r\n\
+                    cluster_stats_messages_sent:0\r\n\
+                    cluster_stats_messages_received:0\r\n";
+        Ok(RespValue::BulkString(info.into()))
+    }
 }
 
 /// CLUSTER dispatch command
@@ -237,49 +246,117 @@ mod tests {
 /// CLUSTER NODES
 ///
 /// Returns information about all nodes in the cluster.
-/// For now, returns just this node since cluster is not enabled.
-pub fn cluster_nodes(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+pub fn cluster_nodes(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if !args.is_empty() {
         return Err(CommandError::WrongArity("CLUSTER NODES".to_string()));
     }
 
-    // Format: <id> <ip:port@cport> <flags> <master> <ping-sent> <pong-recv> <config-epoch> <link-state> <slot> <slot> ... <slot>
-    // For single-node mode, return just this node
-    let node_id = "0000000000000000000000000000000000000000"; // Placeholder ID
-    let info = format!(
-        "{} 127.0.0.1:6380@16380 myself,master - 0 0 0 connected\n",
-        node_id
-    );
-
-    Ok(RespValue::BulkString(info.into()))
+    if let Some(cluster_mgr) = ctx.cluster_manager() {
+        let nodes_str = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let state = cluster_mgr.state().await;
+                state.nodes_string()
+            })
+        });
+        Ok(RespValue::BulkString(nodes_str.into()))
+    } else {
+        // Cluster mode not enabled, return single node
+        let node_id = "0000000000000000000000000000000000000000";
+        let info = format!(
+            "{} 127.0.0.1:6380@16380 myself,master - 0 0 0 connected\n",
+            node_id
+        );
+        Ok(RespValue::BulkString(info.into()))
+    }
 }
 
 /// CLUSTER SLOTS
 ///
 /// Returns array of slot ranges and their assigned nodes.
-/// For now, returns empty since cluster is not enabled.
-pub fn cluster_slots(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+pub fn cluster_slots(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    use bytes::Bytes;
+
     if !args.is_empty() {
         return Err(CommandError::WrongArity("CLUSTER SLOTS".to_string()));
     }
 
-    // Return empty array since no slots are assigned
-    Ok(RespValue::Array(vec![]))
+    if let Some(cluster_mgr) = ctx.cluster_manager() {
+        let ranges = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let state = cluster_mgr.state().await;
+                state.slots_array()
+            })
+        });
+
+        // Convert to RESP format
+        let mut result = Vec::new();
+        for (start, end, nodes) in ranges {
+            let mut range_info = vec![
+                RespValue::Integer(i64::from(start)),
+                RespValue::Integer(i64::from(end)),
+            ];
+
+            // Add node info (for now just placeholder)
+            for _node_id in nodes {
+                range_info.push(RespValue::Array(vec![
+                    RespValue::BulkString(Bytes::from("127.0.0.1")),
+                    RespValue::Integer(6380),
+                ]));
+            }
+
+            result.push(RespValue::Array(range_info));
+        }
+
+        Ok(RespValue::Array(result))
+    } else {
+        Ok(RespValue::Array(vec![]))
+    }
 }
 
 /// CLUSTER ADDSLOTS slot [slot ...]
 ///
 /// Assign hash slots to this node.
-/// Stub implementation - returns error since cluster mode is not enabled.
-pub fn cluster_addslots(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+pub fn cluster_addslots(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.is_empty() {
         return Err(CommandError::WrongArity("CLUSTER ADDSLOTS".to_string()));
     }
 
-    // For now, cluster mode is not fully implemented
-    Err(CommandError::InvalidArgument(
-        "Cluster mode is not enabled. Use standalone or replication mode.".to_string(),
-    ))
+    let Some(cluster_mgr) = ctx.cluster_manager() else {
+        return Err(CommandError::InvalidArgument(
+            "Cluster mode is not enabled. Use standalone or replication mode.".to_string(),
+        ));
+    };
+
+    // Parse slot numbers
+    let mut slots = Vec::new();
+    for arg in args {
+        let slot_str = arg
+            .as_str()
+            .ok_or_else(|| CommandError::InvalidArgument("invalid slot number".to_string()))?;
+        let slot: u16 = slot_str
+            .parse()
+            .map_err(|_| CommandError::InvalidArgument("invalid slot number".to_string()))?;
+
+        if slot >= ferris_replication::CLUSTER_SLOTS {
+            return Err(CommandError::InvalidArgument(format!(
+                "Invalid slot {slot} (must be 0-16383)"
+            )));
+        }
+
+        slots.push(slot);
+    }
+
+    // Assign slots to this node
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let mut state = cluster_mgr.state_mut().await;
+            let my_id = state.my_id.clone();
+            state.assign_slots(&my_id, &slots)
+        })
+    })
+    .map_err(|e| CommandError::InvalidArgument(e))?;
+
+    Ok(RespValue::ok())
 }
 
 /// CLUSTER MEET ip port

@@ -4,7 +4,7 @@ use crate::transaction::TransactionState;
 use ferris_core::{BlockingRegistry, KeyStore, PubSubMessage, PubSubRegistry, SubscriberId};
 use ferris_persistence::AofWriter;
 use ferris_protocol::RespValue;
-use ferris_replication::ReplicationManager;
+use ferris_replication::{ClusterManager, ReplicationManager};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -30,6 +30,8 @@ pub struct CommandContext {
     aof_writer: Option<Arc<AofWriter>>,
     /// Optional replication manager
     replication_manager: Option<Arc<ReplicationManager>>,
+    /// Optional cluster manager
+    cluster_manager: Option<Arc<ClusterManager>>,
     /// Unique client ID assigned when the context is created
     client_id: u64,
     /// Currently selected database index
@@ -62,6 +64,7 @@ impl CommandContext {
             pubsub_receiver,
             aof_writer: None,
             replication_manager: None,
+            cluster_manager: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -85,6 +88,7 @@ impl CommandContext {
             pubsub_receiver,
             aof_writer: None,
             replication_manager: None,
+            cluster_manager: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -112,6 +116,7 @@ impl CommandContext {
             pubsub_receiver,
             aof_writer: None,
             replication_manager: None,
+            cluster_manager: None,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -131,6 +136,7 @@ impl CommandContext {
         pubsub_registry: Arc<PubSubRegistry>,
         aof_writer: Option<Arc<AofWriter>>,
         replication_manager: Option<Arc<ReplicationManager>>,
+        cluster_manager: Option<Arc<ClusterManager>>,
     ) -> Self {
         let (subscriber_id, pubsub_receiver) = pubsub_registry.register_subscriber();
         Self {
@@ -141,6 +147,7 @@ impl CommandContext {
             pubsub_receiver,
             aof_writer,
             replication_manager,
+            cluster_manager,
             client_id: NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
             selected_db: 0,
             authenticated: false,
@@ -304,6 +311,12 @@ impl CommandContext {
     #[must_use]
     pub fn replication_manager(&self) -> Option<&Arc<ReplicationManager>> {
         self.replication_manager.as_ref()
+    }
+
+    /// Get a reference to the cluster manager
+    #[must_use]
+    pub fn cluster_manager(&self) -> Option<&Arc<ClusterManager>> {
+        self.cluster_manager.as_ref()
     }
 
     /// Check if this server is currently a replica (follower)
