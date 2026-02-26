@@ -29,14 +29,19 @@
 #![allow(clippy::return_self_not_must_use)]
 #![allow(clippy::unused_async)]
 
+pub mod benchmark;
 pub mod client;
 pub mod commands;
 pub mod comparison;
 pub mod report;
 
+pub use benchmark::{
+    print_benchmark_summary, run_all_benchmarks, BenchmarkComparison, BenchmarkConfig,
+    BenchmarkResult, Benchmarker,
+};
 pub use client::{DualClient, ParityClient, ServerType};
 pub use comparison::{compare_responses, CompareMode, ParityResult};
-pub use report::{CategoryReport, ParityReport, TestResult};
+pub use report::{CategoryReport, ParityReport, PerformanceReport, TestResult};
 
 /// Default Redis port
 pub const REDIS_PORT: u16 = 6379;
