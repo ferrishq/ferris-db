@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
-> **Status**: Phase 4 IN PROGRESS 🚧 - Slot migration state implemented  
-> **Last Updated**: 2026-02-26 (226 commands, 2,862 tests, Phases 1-3 COMPLETE, Phase 4 40% complete)  
+> **Status**: Phase 4 IN PROGRESS 🚧 - DUMP/RESTORE/MIGRATE fully implemented  
+> **Last Updated**: 2026-02-26 (226 commands, 2,915 tests, Phases 1-3 COMPLETE, Phase 4 50% complete)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -13,11 +13,11 @@
 | **Phase 1: Core Server** | ✅ Complete | 100% | 226 commands, RESP2/3, all data types, TTL, memory management |
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
-| **Phase 4: Cluster** | 🚧 In Progress | 40% | Hash slots ✅, Commands ✅, Redirects ✅, Cross-slot ✅, Migration state ✅ |
+| **Phase 4: Cluster** | 🚧 In Progress | 50% | Hash slots ✅, Commands ✅, Redirects ✅, Cross-slot ✅, Migration state ✅, DUMP/RESTORE/MIGRATE ✅ |
 | **Phase 5: Distributed Locks & Queues** | ⏳ Planned | 0% | DLOCK, DQUEUE, fencing tokens |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
-**Total Test Coverage:** 2,862 tests passing ✅ (2,286 unit + 576 integration)  
+**Total Test Coverage:** 2,915 tests passing ✅ (2,286 unit + 629 integration)  
 **Redis Compatibility:** ~48% command coverage (226/469 commands)
 
 ---
@@ -607,14 +607,21 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] ASK redirect logic updated for migration states
 - [x] Helper functions: `is_slot_migrating()`, `is_slot_importing()`, `get_migrating_target()`, `get_importing_source()`
 
-### 4.6-4.7 Advanced Cluster Features (Not Started)
+### 4.6 DUMP/RESTORE/MIGRATE (Complete ✅)
+- [x] **Tests**: 29 integration tests (8 DUMP, 12 RESTORE, 9 MIGRATE)
+- [x] **Tests**: Complete MIGRATE command execution
+- [x] Binary serialization format with CRC-32 integrity checking (`ferris-core/src/serialization.rs`)
+- [x] DUMP: full serialization returning binary payload
+- [x] RESTORE: full deserialization with REPLACE/ABSTTL/IDLETIME/FREQ flags
+- [x] Complete MIGRATE command execution (key copying via DUMP/RESTORE over TCP)
+- [x] MIGRATE supports: COPY, REPLACE, AUTH, AUTH2, KEYS flags
+
+### 4.7 Advanced Cluster Features (Not Started)
 - [ ] **Tests**: Gossip propagates node state
 - [ ] **Tests**: Automatic failover on master failure
 - [ ] **Tests**: Slot migration under load
-- [ ] **Tests**: Complete MIGRATE command execution
 - [ ] Cluster topology management (multi-node)
 - [ ] Gossip protocol for node discovery
-- [ ] Complete MIGRATE command execution (key copying via DUMP/RESTORE)
 - [ ] Automatic failover
 - [ ] Replica promotion
 
