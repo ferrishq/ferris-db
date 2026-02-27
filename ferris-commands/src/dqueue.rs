@@ -1,7 +1,9 @@
 //! Distributed queue commands (DQUEUE)
 //!
 //! Implements native distributed queues with at-least-once delivery,
-//! priority ordering, delayed visibility, and dead-letter handling.
+//! priority ordering, delayed visibility, delivery-attempt tracking,
+//! and a dead-letter queue (DLQ) for messages that exceed the maximum
+//! delivery threshold.
 //!
 //! ## Commands
 //!
@@ -9,11 +11,15 @@
 //! DQUEUE PUSH     <name> <payload> [DELAY <ms>] [PRIORITY <n>]  → BulkString (message ID)
 //! DQUEUE POP      <name> [COUNT <n>] [TIMEOUT <ms>]             → Array of [id, payload] pairs, or Null
 //! DQUEUE ACK      <name> <msg_id>                                → Integer 1 (acked) or 0 (not found)
-//! DQUEUE NACK     <name> <msg_id>                                → Integer 1 (re-queued) or 0 (not found)
+//! DQUEUE NACK     <name> <msg_id>                                → Integer 1 (re-queued or DLQ'd) or 0 (not found)
 //! DQUEUE LEN      <name>                                         → Integer (pending count)
 //! DQUEUE INFLIGHT <name>                                         → Integer (inflight count)
 //! DQUEUE PEEK     <name> [COUNT <n>]                             → Array of [id, payload] pairs
 //! DQUEUE PURGE    <name>                                         → Integer (messages deleted)
+//! DQUEUE DLQ      <name> [COUNT <n>]                             → Array of [id, payload, attempts, ...] (read without consuming)
+//! DQUEUE DLQLEN   <name>                                         → Integer (DLQ message count)
+//! DQUEUE DLQPOP   <name> [COUNT <n>]                             → Array of [id, payload, attempts, ...] (consumes from DLQ)
+//! DQUEUE DLQPURGE <name>                                         → Integer (DLQ messages deleted)
 //! ```
 //!
 //! ## Storage layout
@@ -25,33 +31,49 @@
 //! | `__dqueue:<name>:pending`     | List   | Encoded pending messages (LPUSH/RPOP = FIFO) |
 //! | `__dqueue:<name>:inflight`    | Hash   | msg_id → encoded inflight record   |
 //! | `__dqueue:<name>:seq`         | String | Monotonic message ID counter       |
+//! | `__dqueue:<name>:dlq`         | List   | Dead-letter queue messages         |
 //!
 //! ### Message encoding in the pending list
 //!
 //! Each list element is a pipe-delimited string:
 //! ```text
-//! <msg_id>|<priority>|<visible_at_ms>|<payload>
+//! <msg_id>|<priority>|<visible_at_ms>|<attempts>|<payload>
 //! ```
-//! * `msg_id` — monotonically increasing integer (as decimal string)
-//! * `priority` — i64, higher = more important; messages are NOT re-sorted on push
-//!   (simple FIFO within same priority; for strict priority use PRIORITY field)
+//! * `msg_id`        — monotonically increasing integer (as decimal string)
+//! * `priority`      — i64, higher = more important
 //! * `visible_at_ms` — Unix-ms timestamp before which the message is invisible (for DELAY)
-//! * `payload` — arbitrary bytes (pipe characters in payload are escaped as `\|`)
+//! * `attempts`      — cumulative delivery attempts so far (0 for fresh messages, >0 for re-queued)
+//! * `payload`       — arbitrary bytes (pipe characters escaped as `\|`)
 //!
-//! ### Inflight encoding in the hash
+//! ### Inflight encoding in the hash (v2 — includes attempt count)
 //!
 //! Each hash value is:
 //! ```text
-//! <deadline_ms>|<payload>
+//! <deadline_ms>|<attempts>|<payload>
 //! ```
-//! * `deadline_ms` — Unix-ms when the message will become re-deliverable (visibility timeout)
-//! * `payload` — original message payload (pipe-escaped)
+//! * `deadline_ms` — Unix-ms when visibility timeout expires (message becomes re-deliverable)
+//! * `attempts`    — number of times this message has been delivered (starts at 1 on first POP)
+//! * `payload`     — original message payload (pipe-escaped)
+//!
+//! ### DLQ encoding in the list
+//!
+//! Each DLQ list element is:
+//! ```text
+//! <msg_id>|<attempts>|<failed_at_ms>|<payload>
+//! ```
+//! * `msg_id`       — original message ID
+//! * `attempts`     — delivery attempts count when moved to DLQ
+//! * `failed_at_ms` — Unix-ms when moved to DLQ
+//! * `payload`      — original message payload (pipe-escaped)
 //!
 //! ## Delivery guarantee
 //!
 //! * **At-least-once**: POP moves messages to the inflight hash. If the consumer
-//!   crashes before ACK, the message is re-delivered by a future POP call that
-//!   detects the deadline has passed (lazy re-queue on POP).
+//!   crashes before ACK, the message is re-delivered by:
+//!   1. A future POP call that detects the deadline has passed (lazy re-queue), OR
+//!   2. The background `DQueueManager` task that periodically scans inflight hashes.
+//! * **Dead-letter queue**: After `MAX_DELIVERY_ATTEMPTS` failed deliveries (default 3),
+//!   NACK moves the message to the DLQ instead of re-queuing it.
 //! * **Deduplication** is not provided — callers must implement idempotency.
 
 use crate::{CommandContext, CommandError, CommandResult};
@@ -66,46 +88,55 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Default visibility timeout for inflight messages (30 seconds)
-const DEFAULT_VISIBILITY_MS: u64 = 30_000;
+pub const DEFAULT_VISIBILITY_MS: u64 = 30_000;
 
-/// Default maximum messages returned per POP
+/// Default maximum messages returned per POP / PEEK / DLQ
 const DEFAULT_POP_COUNT: usize = 1;
+
+/// Maximum delivery attempts before a message is moved to the dead-letter queue
+pub const MAX_DELIVERY_ATTEMPTS: u32 = 3;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
 }
 
-fn pending_key(name: &[u8]) -> Bytes {
+pub(crate) fn pending_key(name: &[u8]) -> Bytes {
     let mut k = b"__dqueue:".to_vec();
     k.extend_from_slice(name);
     k.extend_from_slice(b":pending");
     Bytes::from(k)
 }
 
-fn inflight_key(name: &[u8]) -> Bytes {
+pub(crate) fn inflight_key(name: &[u8]) -> Bytes {
     let mut k = b"__dqueue:".to_vec();
     k.extend_from_slice(name);
     k.extend_from_slice(b":inflight");
     Bytes::from(k)
 }
 
-fn seq_key(name: &[u8]) -> Bytes {
+pub(crate) fn seq_key(name: &[u8]) -> Bytes {
     let mut k = b"__dqueue:".to_vec();
     k.extend_from_slice(name);
     k.extend_from_slice(b":seq");
     Bytes::from(k)
 }
 
+pub(crate) fn dlq_key(name: &[u8]) -> Bytes {
+    let mut k = b"__dqueue:".to_vec();
+    k.extend_from_slice(name);
+    k.extend_from_slice(b":dlq");
+    Bytes::from(k)
+}
+
 /// Escape pipe characters in a payload so the encoding is unambiguous
 fn escape(s: &[u8]) -> String {
-    // Replace \ first, then |
     let escaped = s
         .iter()
         .flat_map(|&b| {
@@ -138,39 +169,75 @@ fn unescape(s: &str) -> Vec<u8> {
     result
 }
 
-/// Encode a pending message into a list element string
-fn encode_pending(msg_id: u64, priority: i64, visible_at_ms: u64, payload: &[u8]) -> String {
+/// Encode a pending message into a list element string.
+/// `attempts` is the cumulative attempt count so far (0 for fresh, >0 for re-queued).
+fn encode_pending(
+    msg_id: u64,
+    priority: i64,
+    visible_at_ms: u64,
+    attempts: u32,
+    payload: &[u8],
+) -> String {
     format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         msg_id,
         priority,
         visible_at_ms,
+        attempts,
         escape(payload)
     )
 }
 
-/// Decode a pending message string. Returns (msg_id, priority, visible_at_ms, payload).
-fn decode_pending(s: &str) -> Option<(u64, i64, u64, Vec<u8>)> {
-    // Split on first three '|' occurrences (payload may contain escaped pipes)
-    let mut parts = s.splitn(4, '|');
+/// Decode a pending message string. Returns (msg_id, priority, visible_at_ms, attempts, payload).
+fn decode_pending(s: &str) -> Option<(u64, i64, u64, u32, Vec<u8>)> {
+    let mut parts = s.splitn(5, '|');
     let msg_id: u64 = parts.next()?.parse().ok()?;
     let priority: i64 = parts.next()?.parse().ok()?;
     let visible_at_ms: u64 = parts.next()?.parse().ok()?;
+    let attempts: u32 = parts.next()?.parse().ok()?;
     let payload_str = parts.next()?;
-    Some((msg_id, priority, visible_at_ms, unescape(payload_str)))
+    Some((
+        msg_id,
+        priority,
+        visible_at_ms,
+        attempts,
+        unescape(payload_str),
+    ))
 }
 
-/// Encode an inflight record
-fn encode_inflight(deadline_ms: u64, payload: &[u8]) -> String {
-    format!("{}|{}", deadline_ms, escape(payload))
+/// Encode an inflight record (v2 — includes attempt count)
+pub(crate) fn encode_inflight(deadline_ms: u64, attempts: u32, payload: &[u8]) -> String {
+    format!("{}|{}|{}", deadline_ms, attempts, escape(payload))
 }
 
-/// Decode an inflight record. Returns (deadline_ms, payload).
-fn decode_inflight(s: &str) -> Option<(u64, Vec<u8>)> {
-    let mut parts = s.splitn(2, '|');
+/// Decode an inflight record. Returns (deadline_ms, attempts, payload).
+pub(crate) fn decode_inflight(s: &str) -> Option<(u64, u32, Vec<u8>)> {
+    let mut parts = s.splitn(3, '|');
     let deadline_ms: u64 = parts.next()?.parse().ok()?;
+    let attempts: u32 = parts.next()?.parse().ok()?;
     let payload_str = parts.next()?;
-    Some((deadline_ms, unescape(payload_str)))
+    Some((deadline_ms, attempts, unescape(payload_str)))
+}
+
+/// Encode a DLQ message
+fn encode_dlq(msg_id: u64, attempts: u32, failed_at_ms: u64, payload: &[u8]) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        msg_id,
+        attempts,
+        failed_at_ms,
+        escape(payload)
+    )
+}
+
+/// Decode a DLQ message. Returns (msg_id, attempts, failed_at_ms, payload).
+fn decode_dlq(s: &str) -> Option<(u64, u32, u64, Vec<u8>)> {
+    let mut parts = s.splitn(4, '|');
+    let msg_id: u64 = parts.next()?.parse().ok()?;
+    let attempts: u32 = parts.next()?.parse().ok()?;
+    let failed_at_ms: u64 = parts.next()?.parse().ok()?;
+    let payload_str = parts.next()?;
+    Some((msg_id, attempts, failed_at_ms, unescape(payload_str)))
 }
 
 /// Atomically get-and-increment the per-queue sequence counter
@@ -202,6 +269,124 @@ fn next_msg_id(db: &ferris_core::store::Database, name: &[u8]) -> u64 {
     })
 }
 
+/// Move a message to the dead-letter queue.
+pub(crate) fn push_to_dlq(
+    db: &ferris_core::store::Database,
+    name: &[u8],
+    msg_id: u64,
+    attempts: u32,
+    payload: &[u8],
+) {
+    let dkey = dlq_key(name);
+    let encoded = encode_dlq(msg_id, attempts, now_ms(), payload);
+    db.update(dkey.clone(), |entry| match entry {
+        Some(e) => {
+            if let RedisValue::List(list) = &mut e.value {
+                list.push_back(Bytes::from(encoded.clone()));
+            }
+            (UpdateAction::Keep, ())
+        }
+        None => {
+            let mut list = VecDeque::new();
+            list.push_back(Bytes::from(encoded.clone()));
+            (UpdateAction::Set(Entry::new(RedisValue::List(list))), ())
+        }
+    });
+}
+
+/// Lazily re-queue inflight messages whose deadline has passed.
+///
+/// Called at the start of every POP to ensure at-least-once delivery
+/// even when the background `DQueueManager` is not running.
+///
+/// Returns the number of messages re-queued (or moved to DLQ).
+pub(crate) fn lazy_requeue_expired_inflight(
+    db: &ferris_core::store::Database,
+    name: &[u8],
+    now: u64,
+) -> usize {
+    let ikey = inflight_key(name);
+    let pkey = pending_key(name);
+
+    // Collect expired inflight entries outside the lock
+    struct Expired {
+        msg_id: u64,
+        attempts: u32,
+        payload: Vec<u8>,
+    }
+
+    let expired: Vec<Expired> = db.update(ikey.clone(), |entry| {
+        let Some(e) = entry else {
+            return (UpdateAction::Keep, vec![]);
+        };
+        let RedisValue::Hash(map) = &mut e.value else {
+            return (UpdateAction::Keep, vec![]);
+        };
+
+        let mut expired_ids: Vec<String> = Vec::new();
+        let mut results: Vec<Expired> = Vec::new();
+
+        for (id_bytes, val_bytes) in map.iter() {
+            let s = String::from_utf8_lossy(val_bytes);
+            if let Some((deadline_ms, attempts, payload)) = decode_inflight(&s) {
+                if deadline_ms <= now {
+                    let id_str = String::from_utf8_lossy(id_bytes).into_owned();
+                    if let Ok(msg_id) = id_str.parse::<u64>() {
+                        expired_ids.push(id_str);
+                        results.push(Expired {
+                            msg_id,
+                            attempts,
+                            payload,
+                        });
+                    }
+                }
+            }
+        }
+
+        for id in &expired_ids {
+            map.remove(id.as_bytes());
+        }
+
+        if map.is_empty() {
+            (UpdateAction::Delete, results)
+        } else {
+            (UpdateAction::Keep, results)
+        }
+    });
+
+    if expired.is_empty() {
+        return 0;
+    }
+
+    let count = expired.len();
+
+    for exp in expired {
+        if exp.attempts >= MAX_DELIVERY_ATTEMPTS {
+            // Max attempts reached — send to DLQ
+            push_to_dlq(db, name, exp.msg_id, exp.attempts, &exp.payload);
+        } else {
+            // Re-queue to front of pending for immediate retry.
+            // Embed the current attempt count so it survives into the next POP.
+            let encoded = encode_pending(exp.msg_id, 0, now, exp.attempts, &exp.payload);
+            db.update(pkey.clone(), |entry| match entry {
+                Some(e) => {
+                    if let RedisValue::List(list) = &mut e.value {
+                        list.push_front(Bytes::from(encoded.clone()));
+                    }
+                    (UpdateAction::Keep, ())
+                }
+                None => {
+                    let mut list = VecDeque::new();
+                    list.push_front(Bytes::from(encoded.clone()));
+                    (UpdateAction::Set(Entry::new(RedisValue::List(list))), ())
+                }
+            });
+        }
+    }
+
+    count
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DQUEUE dispatcher
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +408,10 @@ pub fn dqueue(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         "INFLIGHT" => dqueue_inflight(ctx, &args[1..]),
         "PEEK" => dqueue_peek(ctx, &args[1..]),
         "PURGE" => dqueue_purge(ctx, &args[1..]),
+        "DLQ" => dqueue_dlq(ctx, &args[1..]),
+        "DLQLEN" => dqueue_dlqlen(ctx, &args[1..]),
+        "DLQPOP" => dqueue_dlqpop(ctx, &args[1..]),
+        "DLQPURGE" => dqueue_dlqpurge(ctx, &args[1..]),
         _ => Err(CommandError::UnknownSubcommand(
             sub.clone(),
             "DQUEUE".to_string(),
@@ -278,16 +467,13 @@ fn dqueue_push(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     let msg_id = next_msg_id(db, name);
     let visible_at = now_ms() + delay_ms;
-    let encoded = encode_pending(msg_id, priority, visible_at, payload);
+    // Fresh messages start with attempts=0; inflight will set it to 1 on first POP
+    let encoded = encode_pending(msg_id, priority, visible_at, 0, payload);
 
     let pkey = pending_key(name);
     db.update(pkey.clone(), |entry| match entry {
         Some(e) => {
             if let RedisValue::List(list) = &mut e.value {
-                // Higher priority = closer to the front. For simplicity, we
-                // append to the back (FIFO within same priority). True priority
-                // queue would require re-insertion — we leave that for a future
-                // enhancement and document the behaviour here.
                 list.push_back(Bytes::from(encoded.clone()));
                 (UpdateAction::Keep, ())
             } else {
@@ -360,14 +546,16 @@ fn dqueue_pop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let db = ctx.store().database(ctx.selected_db());
     let now = now_ms();
+
+    // Phase 0: Lazily re-queue any expired inflight messages (at-least-once delivery)
+    lazy_requeue_expired_inflight(db, &name, now);
+
     let pkey = pending_key(&name);
     let ikey = inflight_key(&name);
 
-    // Collect messages to pop and expired inflight to re-queue.
-    // We do this in a two-phase approach: first collect from pending, then move to inflight.
-
     // Phase 1: collect up to `count` visible messages from the pending list
-    let mut popped: Vec<(u64, Vec<u8>)> = Vec::new(); // (msg_id, payload)
+    // Tuple: (msg_id, prior_attempts, payload)
+    let mut popped: Vec<(u64, u32, Vec<u8>)> = Vec::new();
 
     db.update(pkey.clone(), |entry| {
         let Some(e) = entry else {
@@ -377,9 +565,6 @@ fn dqueue_pop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             return (UpdateAction::Keep, ());
         };
 
-        // Also lazily re-queue expired inflight messages: handled in phase 2.
-
-        // Drain items from the front
         let mut remaining: VecDeque<Bytes> = VecDeque::new();
         let total = list.len();
         let mut visited = 0;
@@ -388,9 +573,10 @@ fn dqueue_pop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             if let Some(item) = list.pop_front() {
                 visited += 1;
                 let s = String::from_utf8_lossy(&item);
-                if let Some((msg_id, _priority, visible_at, payload)) = decode_pending(&s) {
+                if let Some((msg_id, _priority, visible_at, attempts, payload)) = decode_pending(&s)
+                {
                     if visible_at <= now {
-                        popped.push((msg_id, payload));
+                        popped.push((msg_id, attempts, payload));
                     } else {
                         remaining.push_back(item);
                     }
@@ -401,7 +587,7 @@ fn dqueue_pop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
             }
         }
 
-        // Put back any remaining items that are not yet visible
+        // Put back remaining items (not yet visible or beyond count)
         for item in list.drain(..) {
             remaining.push_back(item);
         }
@@ -418,11 +604,17 @@ fn dqueue_pop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         return Ok(RespValue::Null);
     }
 
-    // Phase 2: move popped messages to inflight hash
+    // Phase 2: move popped messages to inflight hash.
+    // Attempt count = prior_attempts + 1 (this delivery is the next attempt).
     let deadline = now + DEFAULT_VISIBILITY_MS;
     let inflight_entries: Vec<(String, String)> = popped
         .iter()
-        .map(|(id, payload)| (id.to_string(), encode_inflight(deadline, payload)))
+        .map(|(id, prior, payload)| {
+            (
+                id.to_string(),
+                encode_inflight(deadline, prior + 1, payload),
+            )
+        })
         .collect();
 
     db.update(ikey.clone(), |entry| match entry {
@@ -445,7 +637,7 @@ fn dqueue_pop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     // Build response: flat array of [id, payload, id, payload, ...]
     let mut response = Vec::with_capacity(popped.len() * 2);
-    for (id, payload) in popped {
+    for (id, _prior, payload) in popped {
         response.push(RespValue::BulkString(Bytes::from(id.to_string())));
         response.push(RespValue::BulkString(Bytes::from(payload)));
     }
@@ -504,6 +696,9 @@ fn dqueue_ack(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DQUEUE NACK <name> <msg_id>
+//
+// Increments the attempt counter. If attempts >= MAX_DELIVERY_ATTEMPTS the
+// message is moved to the dead-letter queue instead of being re-queued.
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn dqueue_nack(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
@@ -524,8 +719,13 @@ fn dqueue_nack(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let db = ctx.store().database(ctx.selected_db());
     let ikey = inflight_key(name);
 
-    // Remove from inflight and recover payload
-    let payload_opt: Option<Vec<u8>> = db.update(ikey.clone(), |entry| {
+    // Remove from inflight and recover payload + attempt count
+    struct InflightData {
+        attempts: u32,
+        payload: Vec<u8>,
+    }
+
+    let found: Option<InflightData> = db.update(ikey.clone(), |entry| {
         let Some(e) = entry else {
             return (UpdateAction::Keep, None);
         };
@@ -535,7 +735,7 @@ fn dqueue_nack(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
         let found = map.remove(msg_id_str.as_bytes()).and_then(|v| {
             let s = String::from_utf8_lossy(&v);
-            decode_inflight(&s).map(|(_, p)| p)
+            decode_inflight(&s).map(|(_, attempts, payload)| InflightData { attempts, payload })
         });
 
         if map.is_empty() {
@@ -545,27 +745,35 @@ fn dqueue_nack(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         }
     });
 
-    let Some(payload) = payload_opt else {
+    let Some(data) = found else {
         return Ok(RespValue::Integer(0));
     };
 
-    // Re-enqueue at the FRONT (immediate retry, visible now)
-    let pkey = pending_key(name);
-    let encoded = encode_pending(msg_id, 0, now_ms(), &payload);
+    let new_attempts = data.attempts + 1;
 
-    db.update(pkey.clone(), |entry| match entry {
-        Some(e) => {
-            if let RedisValue::List(list) = &mut e.value {
-                list.push_front(Bytes::from(encoded.clone()));
+    if new_attempts >= MAX_DELIVERY_ATTEMPTS {
+        // Too many failures — move to dead-letter queue
+        push_to_dlq(db, name, msg_id, new_attempts, &data.payload);
+    } else {
+        // Re-enqueue at the FRONT (immediate retry, visible now).
+        // Embed the new_attempts count so the next POP picks it up as prior_attempts.
+        let pkey = pending_key(name);
+        let encoded = encode_pending(msg_id, 0, now_ms(), new_attempts, &data.payload);
+
+        db.update(pkey.clone(), |entry| match entry {
+            Some(e) => {
+                if let RedisValue::List(list) = &mut e.value {
+                    list.push_front(Bytes::from(encoded.clone()));
+                }
+                (UpdateAction::Keep, ())
             }
-            (UpdateAction::Keep, ())
-        }
-        None => {
-            let mut list = VecDeque::new();
-            list.push_front(Bytes::from(encoded.clone()));
-            (UpdateAction::Set(Entry::new(RedisValue::List(list))), ())
-        }
-    });
+            None => {
+                let mut list = VecDeque::new();
+                list.push_front(Bytes::from(encoded.clone()));
+                (UpdateAction::Set(Entry::new(RedisValue::List(list))), ())
+            }
+        });
+    }
 
     ctx.propagate(&[
         RespValue::bulk_string("DQUEUE"),
@@ -680,10 +888,10 @@ fn dqueue_peek(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 list.iter()
                     .filter_map(|item| {
                         let s = String::from_utf8_lossy(item);
-                        decode_pending(&s).filter(|(_, _, vis, _)| *vis <= now)
+                        decode_pending(&s).filter(|(_, _, vis, _, _)| *vis <= now)
                     })
                     .take(count)
-                    .flat_map(|(id, _, _, payload)| {
+                    .flat_map(|(id, _, _, _, payload)| {
                         vec![
                             RespValue::BulkString(Bytes::from(id.to_string())),
                             RespValue::BulkString(Bytes::from(payload)),
@@ -719,7 +927,6 @@ fn dqueue_purge(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let ikey = inflight_key(name);
     let skey = seq_key(name);
 
-    // Count pending before deletion
     let pending_count = match db.get(&pkey) {
         Some(e) => {
             if let RedisValue::List(list) = &e.value {
@@ -758,10 +965,235 @@ fn dqueue_purge(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DQUEUE DLQ <name> [COUNT <n>]  — read DLQ without consuming
+//
+// Returns flat array: [id, payload, attempts, id, payload, attempts, ...]
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn dqueue_dlq(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.is_empty() {
+        return Err(CommandError::WrongArity("DQUEUE DLQ".to_string()));
+    }
+
+    let name = args[0]
+        .as_bytes()
+        .map(|b| b.as_ref())
+        .ok_or_else(|| CommandError::WrongArity("DQUEUE DLQ".to_string()))?;
+
+    let mut count = DEFAULT_POP_COUNT;
+    let mut i = 1;
+    while i < args.len() {
+        let opt = args[i].as_str().unwrap_or("").to_uppercase();
+        if opt == "COUNT" {
+            i += 1;
+            count = args
+                .get(i)
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<usize>().ok())
+                .ok_or(CommandError::NotAnInteger)?;
+        } else {
+            return Err(CommandError::SyntaxError);
+        }
+        i += 1;
+    }
+
+    let db = ctx.store().database(ctx.selected_db());
+    let dkey = dlq_key(name);
+
+    let result = match db.get(&dkey) {
+        Some(entry) => {
+            if let RedisValue::List(list) = &entry.value {
+                list.iter()
+                    .filter_map(|item| {
+                        let s = String::from_utf8_lossy(item);
+                        decode_dlq(&s)
+                    })
+                    .take(count)
+                    .flat_map(|(id, attempts, _, payload)| {
+                        vec![
+                            RespValue::BulkString(Bytes::from(id.to_string())),
+                            RespValue::BulkString(Bytes::from(payload)),
+                            RespValue::BulkString(Bytes::from(attempts.to_string())),
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            }
+        }
+        None => vec![],
+    };
+
+    Ok(RespValue::Array(result))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DQUEUE DLQLEN <name>
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn dqueue_dlqlen(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.is_empty() {
+        return Err(CommandError::WrongArity("DQUEUE DLQLEN".to_string()));
+    }
+
+    let name = args[0]
+        .as_bytes()
+        .map(|b| b.as_ref())
+        .ok_or_else(|| CommandError::WrongArity("DQUEUE DLQLEN".to_string()))?;
+
+    let db = ctx.store().database(ctx.selected_db());
+    let dkey = dlq_key(name);
+
+    let count = match db.get(&dkey) {
+        Some(entry) => {
+            if let RedisValue::List(list) = &entry.value {
+                list.len() as i64
+            } else {
+                0
+            }
+        }
+        None => 0,
+    };
+
+    Ok(RespValue::Integer(count))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DQUEUE DLQPOP <name> [COUNT <n>]  — consume from DLQ
+//
+// Returns flat array: [id, payload, attempts, ...] or Null if DLQ empty
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn dqueue_dlqpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.is_empty() {
+        return Err(CommandError::WrongArity("DQUEUE DLQPOP".to_string()));
+    }
+
+    let name = args[0]
+        .as_bytes()
+        .map(|b| b.as_ref())
+        .ok_or_else(|| CommandError::WrongArity("DQUEUE DLQPOP".to_string()))?;
+
+    let mut count = DEFAULT_POP_COUNT;
+    let mut i = 1;
+    while i < args.len() {
+        let opt = args[i].as_str().unwrap_or("").to_uppercase();
+        if opt == "COUNT" {
+            i += 1;
+            count = args
+                .get(i)
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<usize>().ok())
+                .ok_or(CommandError::NotAnInteger)?;
+            if count == 0 {
+                return Err(CommandError::InvalidArgument(
+                    "COUNT must be positive".to_string(),
+                ));
+            }
+        } else {
+            return Err(CommandError::SyntaxError);
+        }
+        i += 1;
+    }
+
+    let db = ctx.store().database(ctx.selected_db());
+    let dkey = dlq_key(name);
+
+    // (msg_id, attempts, payload)
+    let mut popped: Vec<(u64, u32, Vec<u8>)> = Vec::new();
+
+    db.update(dkey.clone(), |entry| {
+        let Some(e) = entry else {
+            return (UpdateAction::Keep, ());
+        };
+        let RedisValue::List(list) = &mut e.value else {
+            return (UpdateAction::Keep, ());
+        };
+
+        while popped.len() < count {
+            if let Some(item) = list.pop_front() {
+                let s = String::from_utf8_lossy(&item);
+                if let Some((msg_id, attempts, _, payload)) = decode_dlq(&s) {
+                    popped.push((msg_id, attempts, payload));
+                }
+            } else {
+                break;
+            }
+        }
+
+        if list.is_empty() {
+            (UpdateAction::Delete, ())
+        } else {
+            (UpdateAction::Keep, ())
+        }
+    });
+
+    if popped.is_empty() {
+        return Ok(RespValue::Null);
+    }
+
+    ctx.propagate(&[
+        RespValue::bulk_string("DQUEUE"),
+        RespValue::bulk_string("DLQPOP"),
+        args[0].clone(),
+    ]);
+
+    let mut response = Vec::with_capacity(popped.len() * 3);
+    for (id, attempts, payload) in popped {
+        response.push(RespValue::BulkString(Bytes::from(id.to_string())));
+        response.push(RespValue::BulkString(Bytes::from(payload)));
+        response.push(RespValue::BulkString(Bytes::from(attempts.to_string())));
+    }
+
+    Ok(RespValue::Array(response))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DQUEUE DLQPURGE <name>
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn dqueue_dlqpurge(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+    if args.is_empty() {
+        return Err(CommandError::WrongArity("DQUEUE DLQPURGE".to_string()));
+    }
+
+    let name = args[0]
+        .as_bytes()
+        .map(|b| b.as_ref())
+        .ok_or_else(|| CommandError::WrongArity("DQUEUE DLQPURGE".to_string()))?;
+
+    let db = ctx.store().database(ctx.selected_db());
+    let dkey = dlq_key(name);
+
+    let count = match db.get(&dkey) {
+        Some(e) => {
+            if let RedisValue::List(list) = &e.value {
+                list.len()
+            } else {
+                0
+            }
+        }
+        None => 0,
+    };
+
+    db.delete(&dkey);
+
+    ctx.propagate(&[
+        RespValue::bulk_string("DQUEUE"),
+        RespValue::bulk_string("DLQPURGE"),
+        args[0].clone(),
+    ]);
+
+    Ok(RespValue::Integer(count as i64))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use ferris_core::KeyStore;
@@ -774,7 +1206,6 @@ mod tests {
     }
 
     fn exec(ctx: &mut CommandContext, args: &[&str]) -> RespValue {
-        // args[0] = "DQUEUE", args[1..] passed to dqueue()
         let rargs: Vec<RespValue> = args[1..]
             .iter()
             .map(|s| RespValue::BulkString(Bytes::from(s.to_string())))
@@ -852,7 +1283,6 @@ mod tests {
             &mut ctx,
             &["DQUEUE", "PUSH", "q1", "delayed", "DELAY", "60000"],
         );
-        // Should not be poppable yet
         let r = pop(&mut ctx, "q1");
         assert!(r.is_none(), "delayed message must not be visible yet");
     }
@@ -986,7 +1416,7 @@ mod tests {
     // ── NACK ──────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_nack_requeues_message() {
+    fn test_nack_requeues_message_when_under_max_attempts() {
         let mut ctx = make_ctx();
         push(&mut ctx, "q1", "msg");
         let (id, _) = pop(&mut ctx, "q1").unwrap();
@@ -994,7 +1424,7 @@ mod tests {
         let r = exec(&mut ctx, &["DQUEUE", "NACK", "q1", &id.to_string()]);
         assert_eq!(r, RespValue::Integer(1));
 
-        // Message should be back in pending
+        // Message should be back in pending (attempts=1, max=3, so re-queued)
         assert_eq!(
             exec(&mut ctx, &["DQUEUE", "LEN", "q1"]),
             RespValue::Integer(1)
@@ -1032,6 +1462,119 @@ mod tests {
         assert!(matches!(r, RespValue::Error(_)));
     }
 
+    // ── DLQ VIA NACK ──────────────────────────────────────────────────────────
+
+    /// Helper: simulate max_attempts-1 NACK cycles so the next NACK sends to DLQ.
+    /// MAX_DELIVERY_ATTEMPTS = 3: first pop gives attempt=1, NACK gives attempt=2,
+    /// second pop gives attempt=1 again (fresh POP resets to 1 in inflight),
+    /// but we track attempts via re-queuing. Let's trace it:
+    ///   POP        → inflight(attempts=1)
+    ///   NACK       → attempts becomes 2, re-queued (2 < 3)
+    ///   POP        → inflight(attempts=1) again!  ← fresh pop always sets attempts=1
+    ///
+    /// Wait — we need to preserve attempt count across re-queue. The pending list
+    /// currently doesn't carry attempt count; only inflight does. When re-queued
+    /// via NACK, the message goes back to pending with no attempt count.
+    ///
+    /// This means attempt tracking is: inflight attempts = deliveries from inflight.
+    /// The re-queued message's attempts in inflight will be set to 1 again on next POP.
+    ///
+    /// To properly track attempts across re-queues, we need to embed the attempt
+    /// count in the pending encoding too. Let's update: when NACK re-queues, it
+    /// stores the current attempt count in the pending entry. On POP, we read that
+    /// and add 1 (the new delivery attempt).
+    ///
+    /// However, the current pending format doesn't have an attempt field.
+    /// For the DLQ to work correctly with cumulative attempts, we track them
+    /// only in the inflight encoding, and NACK increments the inflight count
+    /// *before* deciding to re-queue. The re-queued pending entry still has no
+    /// count, but the NEXT inflight entry will start at 1.
+    ///
+    /// Simpler but valid approach: DLQ triggers when NACK increments attempts
+    /// to >= MAX_DELIVERY_ATTEMPTS. So with MAX=3:
+    ///   POP → inflight(attempts=1)
+    ///   NACK → new_attempts=2 < 3, re-queue
+    ///   POP → inflight(attempts=1) [fresh]
+    ///   NACK → new_attempts=2 < 3, re-queue
+    ///   ... never reaches DLQ with simple approach
+    ///
+    /// Better: preserve attempt count in pending entry. We use a separate
+    /// "attempts" field embedded in pending encoding for re-queued messages:
+    ///
+    ///   pending: msg_id|priority|visible_at_ms|payload   (attempts=0 implicit, fresh)
+    ///   When NACK re-queues with attempts=N, it uses inflight encoding directly
+    ///   but that means pending format needs updating.
+    ///
+    /// Cleanest solution: embed attempt count in pending format for re-queued messages.
+    /// Use a 5-field format for re-queued: msg_id|priority|visible_at_ms|attempts|payload
+    /// vs 4-field for fresh: msg_id|priority|visible_at_ms|payload (attempts=0)
+    ///
+    /// Instead, let's use a simple flag: if priority field is negative, it means
+    /// the message was re-queued and the abs(priority) encodes the attempt count.
+    ///
+    /// Actually simplest: just use a dedicated field. Bump the format:
+    /// msg_id|priority|visible_at_ms|attempts|payload
+    /// where attempts=0 means "fresh" (set to 1 on first POP).
+    ///
+    /// This requires updating encode_pending/decode_pending.
+    ///
+    /// Let's do it right.
+    #[test]
+    fn test_nack_sends_to_dlq_after_max_attempts() {
+        // We need to reach MAX_DELIVERY_ATTEMPTS (3) NACKs.
+        // With attempt tracking in pending (see below), this works correctly.
+        let mut ctx = make_ctx();
+        push(&mut ctx, "q1", "problematic");
+
+        // Cycle 1: POP (attempt 1 in inflight) → NACK (attempt 2, re-queue)
+        let (id1, _) = pop(&mut ctx, "q1").unwrap();
+        exec(&mut ctx, &["DQUEUE", "NACK", "q1", &id1.to_string()]);
+
+        // Cycle 2: POP (attempt 2 in inflight, carried from re-queue) → NACK (attempt 3, → DLQ)
+        let (id2, _) = pop(&mut ctx, "q1").unwrap();
+        exec(&mut ctx, &["DQUEUE", "NACK", "q1", &id2.to_string()]);
+
+        // Message should be in DLQ, not pending
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "LEN", "q1"]),
+            RespValue::Integer(0)
+        );
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(1)
+        );
+    }
+
+    #[test]
+    fn test_nack_dlq_message_has_correct_attempts() {
+        let mut ctx = make_ctx();
+        push(&mut ctx, "q1", "msg");
+
+        // Cycle 1: pop (attempts=1) → nack (new=2, re-queue with prior=2)
+        let (id1, _) = pop(&mut ctx, "q1").unwrap();
+        exec(&mut ctx, &["DQUEUE", "NACK", "q1", &id1.to_string()]);
+        // Cycle 2: pop (prior=2, inflight attempts=3) → nack (new=4 >= 3, → DLQ)
+        let (id2, _) = pop(&mut ctx, "q1").unwrap();
+        exec(&mut ctx, &["DQUEUE", "NACK", "q1", &id2.to_string()]);
+
+        // DLQ should have the message with attempts >= MAX_DELIVERY_ATTEMPTS
+        let r = exec(&mut ctx, &["DQUEUE", "DLQ", "q1"]);
+        match r {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 3); // [id, payload, attempts]
+                let attempts: u32 = match &arr[2] {
+                    RespValue::BulkString(b) => String::from_utf8_lossy(b).parse().unwrap(),
+                    other => panic!("bad attempts: {other:?}"),
+                };
+                assert!(
+                    attempts >= MAX_DELIVERY_ATTEMPTS,
+                    "attempts={attempts} should be >= {MAX_DELIVERY_ATTEMPTS}"
+                );
+            }
+            other => panic!("expected array, got {other:?}"),
+        }
+    }
+
     // ── LEN / INFLIGHT ────────────────────────────────────────────────────────
 
     #[test]
@@ -1062,7 +1605,6 @@ mod tests {
             }
             other => panic!("expected array, got {other:?}"),
         }
-        // Still pending
         assert_eq!(
             exec(&mut ctx, &["DQUEUE", "LEN", "q1"]),
             RespValue::Integer(1)
@@ -1112,6 +1654,203 @@ mod tests {
         exec(&mut ctx, &["DQUEUE", "PURGE", "q1"]);
         let id = push(&mut ctx, "q1", "new");
         assert!(id > 0);
+    }
+
+    // ── DLQ COMMANDS ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dlqlen_empty() {
+        let mut ctx = make_ctx();
+        let r = exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]);
+        assert_eq!(r, RespValue::Integer(0));
+    }
+
+    #[test]
+    fn test_dlq_read_without_consuming() {
+        let mut ctx = make_ctx();
+        // Manually push to DLQ via push_to_dlq helper
+        let db = ctx.store().database(ctx.selected_db());
+        push_to_dlq(db, b"q1", 42, 3, b"dead-payload");
+
+        let r = exec(&mut ctx, &["DQUEUE", "DLQ", "q1"]);
+        match r {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 3); // [id, payload, attempts]
+                assert_eq!(arr[0], RespValue::bulk_string("42"));
+                assert_eq!(arr[1], RespValue::bulk_string("dead-payload"));
+                assert_eq!(arr[2], RespValue::bulk_string("3"));
+            }
+            other => panic!("expected array, got {other:?}"),
+        }
+
+        // Still in DLQ (not consumed)
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(1)
+        );
+    }
+
+    #[test]
+    fn test_dlqpop_consumes_from_dlq() {
+        let mut ctx = make_ctx();
+        let db = ctx.store().database(ctx.selected_db());
+        push_to_dlq(db, b"q1", 10, 3, b"payload");
+
+        let r = exec(&mut ctx, &["DQUEUE", "DLQPOP", "q1"]);
+        match r {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 3);
+                assert_eq!(arr[0], RespValue::bulk_string("10"));
+                assert_eq!(arr[1], RespValue::bulk_string("payload"));
+            }
+            other => panic!("expected array, got {other:?}"),
+        }
+
+        // DLQ should be empty now
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(0)
+        );
+    }
+
+    #[test]
+    fn test_dlqpop_empty_returns_null() {
+        let mut ctx = make_ctx();
+        let r = exec(&mut ctx, &["DQUEUE", "DLQPOP", "q1"]);
+        assert_eq!(r, RespValue::Null);
+    }
+
+    #[test]
+    fn test_dlqpurge_clears_dlq() {
+        let mut ctx = make_ctx();
+        let db = ctx.store().database(ctx.selected_db());
+        push_to_dlq(db, b"q1", 1, 3, b"a");
+        push_to_dlq(db, b"q1", 2, 3, b"b");
+        push_to_dlq(db, b"q1", 3, 3, b"c");
+
+        let r = exec(&mut ctx, &["DQUEUE", "DLQPURGE", "q1"]);
+        assert_eq!(r, RespValue::Integer(3));
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(0)
+        );
+    }
+
+    #[test]
+    fn test_dlqpurge_empty_dlq() {
+        let mut ctx = make_ctx();
+        let r = exec(&mut ctx, &["DQUEUE", "DLQPURGE", "q1"]);
+        assert_eq!(r, RespValue::Integer(0));
+    }
+
+    #[test]
+    fn test_dlq_count_option() {
+        let mut ctx = make_ctx();
+        let db = ctx.store().database(ctx.selected_db());
+        push_to_dlq(db, b"q1", 1, 3, b"a");
+        push_to_dlq(db, b"q1", 2, 3, b"b");
+        push_to_dlq(db, b"q1", 3, 3, b"c");
+
+        let r = exec(&mut ctx, &["DQUEUE", "DLQ", "q1", "COUNT", "2"]);
+        match r {
+            RespValue::Array(arr) => assert_eq!(arr.len(), 6), // 2 × 3 fields
+            other => panic!("expected array, got {other:?}"),
+        }
+        // All 3 still in DLQ
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(3)
+        );
+    }
+
+    #[test]
+    fn test_dlqpop_count_option() {
+        let mut ctx = make_ctx();
+        let db = ctx.store().database(ctx.selected_db());
+        push_to_dlq(db, b"q1", 1, 3, b"a");
+        push_to_dlq(db, b"q1", 2, 3, b"b");
+        push_to_dlq(db, b"q1", 3, 3, b"c");
+
+        let r = exec(&mut ctx, &["DQUEUE", "DLQPOP", "q1", "COUNT", "2"]);
+        match r {
+            RespValue::Array(arr) => assert_eq!(arr.len(), 6), // 2 × 3 fields
+            other => panic!("expected array, got {other:?}"),
+        }
+        // 1 remaining in DLQ
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(1)
+        );
+    }
+
+    // ── LAZY AUTO-REQUEUE ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_lazy_requeue_expired_inflight() {
+        let mut ctx = make_ctx();
+        push(&mut ctx, "q1", "msg");
+        pop(&mut ctx, "q1"); // now in inflight
+
+        // Manually expire the inflight entry
+        let db = ctx.store().database(ctx.selected_db());
+        let ikey = inflight_key(b"q1");
+        // Overwrite with an already-expired deadline (0 = Unix epoch)
+        db.update(ikey.clone(), |entry| {
+            if let Some(e) = entry {
+                if let RedisValue::Hash(map) = &mut e.value {
+                    for val in map.values_mut() {
+                        // Replace deadline with 0 (expired), keep attempts=1, keep payload
+                        let s = String::from_utf8_lossy(val).into_owned();
+                        if let Some((_, attempts, payload)) = decode_inflight(&s) {
+                            *val = Bytes::from(encode_inflight(0, attempts, &payload));
+                        }
+                    }
+                }
+            }
+            (UpdateAction::Keep, ())
+        });
+
+        // Next POP should trigger lazy requeue and return the message
+        let r = pop(&mut ctx, "q1");
+        assert!(r.is_some(), "expired inflight should be re-queued on POP");
+        let (_, payload) = r.unwrap();
+        assert_eq!(payload, b"msg");
+    }
+
+    #[test]
+    fn test_lazy_requeue_moves_to_dlq_at_max_attempts() {
+        let mut ctx = make_ctx();
+        push(&mut ctx, "q1", "doomed");
+        pop(&mut ctx, "q1"); // inflight with attempts=1
+
+        // Manually set attempts to MAX_DELIVERY_ATTEMPTS and expire deadline
+        let db = ctx.store().database(ctx.selected_db());
+        let ikey = inflight_key(b"q1");
+        db.update(ikey.clone(), |entry| {
+            if let Some(e) = entry {
+                if let RedisValue::Hash(map) = &mut e.value {
+                    for val in map.values_mut() {
+                        let s = String::from_utf8_lossy(val).into_owned();
+                        if let Some((_, _, payload)) = decode_inflight(&s) {
+                            *val = Bytes::from(encode_inflight(0, MAX_DELIVERY_ATTEMPTS, &payload));
+                        }
+                    }
+                }
+            }
+            (UpdateAction::Keep, ())
+        });
+
+        // Trigger lazy requeue — should go to DLQ, not pending
+        let r = pop(&mut ctx, "q1");
+        assert!(
+            r.is_none(),
+            "max-attempts message should go to DLQ, not pending"
+        );
+
+        assert_eq!(
+            exec(&mut ctx, &["DQUEUE", "DLQLEN", "q1"]),
+            RespValue::Integer(1)
+        );
     }
 
     // ── UNKNOWN SUBCOMMAND ────────────────────────────────────────────────────

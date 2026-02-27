@@ -1,7 +1,7 @@
 # ferris-db Roadmap
 
-> **Status**: Phase 4 50% ✅ + Phase 5 Foundation 🚧 - DLOCK/DQUEUE implemented  
-> **Last Updated**: 2026-02-26 (228 commands, 2,995 tests, Phases 1-3 COMPLETE, Phase 4 50%, Phase 5 50%)  
+> **Status**: Phase 4 50% ✅ + Phase 5 90% ✅ - DLOCK/DQUEUE + DLQ + auto-requeue complete  
+> **Last Updated**: 2026-02-26 (232 commands, 3,016 tests, Phases 1-3 COMPLETE, Phase 4 50%, Phase 5 90%)  
 > **Default Port**: 6380 (to avoid conflict with Redis on 6379)
 
 ---
@@ -14,11 +14,11 @@
 | **Phase 2: Transactions & Persistence** | ✅ Complete | 100% | MULTI/EXEC, WATCH, Pub/Sub, AOF (write/replay/rewrite) |
 | **Phase 3: Replication** | ✅ Complete | 100% | Leader/follower, WAIT, consistency modes, PSYNC |
 | **Phase 4: Cluster** | 🚧 In Progress | 50% | Hash slots ✅, Commands ✅, Redirects ✅, Cross-slot ✅, Migration state ✅, DUMP/RESTORE/MIGRATE ✅ |
-| **Phase 5: Distributed Locks & Queues** | 🚧 In Progress | 50% | DLOCK ✅ (acquire/release/extend/status/forcerelease), DQUEUE ✅ (push/pop/ack/nack/len/inflight/peek/purge) |
+| **Phase 5: Distributed Locks & Queues** | 🚧 In Progress | 90% | DLOCK ✅, DQUEUE ✅ (push/pop/ack/nack/len/inflight/peek/purge/dlq/dlqlen/dlqpop/dlqpurge), DLQ ✅, auto-requeue ✅, DQueueManager ✅ |
 | **Phase 6: CRDTs & Active/Active** | ⏳ Planned | 0% | Multi-master, conflict-free resolution |
 
-**Total Test Coverage:** 2,995 tests passing ✅ (2,346 unit + 649 integration)  
-**Redis Compatibility:** ~48% command coverage (226/469 commands)
+**Total Test Coverage:** 3,016 tests passing ✅ (2,367 unit + 649 integration)  
+**Redis Compatibility:** ~48% command coverage (228/469 commands)
 
 ---
 
@@ -655,33 +655,50 @@ Each phase builds on the previous one. Phases are sequential at the macro level,
 - [x] Monotonically increasing fencing tokens per database
 
 ### 5.2 DQUEUE — Distributed Queue (Complete ✅)
-- [x] **Tests**: Push/pop/ack cycle (31 unit + 10 integration)
-- [x] **Tests**: NACK re-queues message for retry
+- [x] **Tests**: Push/pop/ack cycle (43 unit + 10 integration)
+- [x] **Tests**: NACK re-queues message for retry (with attempt tracking)
 - [x] **Tests**: DELAY defers visibility
 - [x] **Tests**: Inflight tracking
 - [x] **Tests**: PURGE clears queue + inflight
+- [x] **Tests**: DLQ after max attempts (NACK-based and auto-requeue-based)
+- [x] **Tests**: Lazy auto-requeue of expired inflight on POP
 - [x] DQUEUE PUSH     <name> <payload> [DELAY <ms>] [PRIORITY <n>] → msg_id
 - [x] DQUEUE POP      <name> [COUNT <n>]                            → [[id,payload],...]
 - [x] DQUEUE ACK      <name> <msg_id>                               → 1/0
-- [x] DQUEUE NACK     <name> <msg_id>                               → 1/0 (re-queues to front)
+- [x] DQUEUE NACK     <name> <msg_id>                               → 1/0 (re-queues or DLQ's)
 - [x] DQUEUE LEN      <name>                                        → Integer
 - [x] DQUEUE INFLIGHT <name>                                        → Integer
 - [x] DQUEUE PEEK     <name> [COUNT <n>]                            → [[id,payload],...]
 - [x] DQUEUE PURGE    <name>                                        → Integer
+- [x] DQUEUE DLQ      <name> [COUNT <n>]                            → [[id,payload,attempts],...]
+- [x] DQUEUE DLQLEN   <name>                                        → Integer
+- [x] DQUEUE DLQPOP   <name> [COUNT <n>]                            → [[id,payload,attempts],...]
+- [x] DQUEUE DLQPURGE <name>                                        → Integer
 - [x] At-least-once delivery semantics
 - [x] DELAY support for deferred message visibility
+- [x] Delivery attempt tracking (cumulative, survives re-queue)
+- [x] Dead letter queue — messages moved after MAX_DELIVERY_ATTEMPTS (default 3)
 
-### 5.3-5.7 Remaining Phase 5 Features
-- [ ] **Tests**: Unacked messages auto-return after visibility timeout
-- [ ] **Tests**: Dead letter queue captures failed messages
-- [ ] Automatic re-queue of expired inflight messages (background task)
-- [ ] Dead letter queue (DQUEUE DLQ <name>)
-- [ ] Lock/queue replication to followers
+### 5.3 Auto-Requeue & DQueueManager (Complete ✅)
+- [x] **Tests**: Lazy auto-requeue on POP (expired inflight re-queued)
+- [x] **Tests**: Max-attempts detection sends to DLQ (lazy path)
+- [x] **Tests**: Background DQueueManager scans all databases every 1s (9 tests)
+- [x] **Tests**: Background task re-queues expired inflight messages
+- [x] **Tests**: Background task moves max-attempts messages to DLQ
+- [x] Lazy re-queue: POP triggers scan of inflight, re-queues expired entries
+- [x] `DQueueManager` background task in `ferris-core` (mirrors `ExpiryManager`)
+- [x] Background task started and shutdown wired in `ferris-server/src/main.rs`
+- [x] `Database::scan_keys_matching()` helper added to `ferris-core`
+
+### 5.4 Remaining Phase 5 Features
+- [ ] Lock/queue replication to followers (end-to-end replication test)
 
 ### Phase 5 Milestone Criteria
 - [x] Locks work under contention ✅
 - [ ] Queues handle 100K+ msgs/sec (benchmark needed)
-- [x] At-least-once delivery guaranteed ✅ (via inflight + NACK)
+- [x] At-least-once delivery guaranteed ✅ (via inflight + NACK + DQueueManager)
+- [x] Dead-letter queue captures permanently failed messages ✅
+- [x] Expired inflight messages auto-requeued (lazy + background) ✅
 - [ ] Primitives survive failover (replication integration)
 - [ ] **Code coverage >= 95%**
 

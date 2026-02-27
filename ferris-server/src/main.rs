@@ -15,7 +15,7 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use bytes::Bytes;
 use clap::Parser;
-use ferris_core::{Entry, ExpiryManager, KeyStore, RedisValue};
+use ferris_core::{DQueueManager, Entry, ExpiryManager, KeyStore, RedisValue};
 use ferris_network::{Server, ServerConfig};
 use ferris_persistence::{AofConfig, AofReader, AofWriter, FsyncMode};
 use ferris_protocol::RespValue;
@@ -152,6 +152,15 @@ async fn main() -> anyhow::Result<()> {
         expiry_handle.run(expiry_store).await;
     });
 
+    // Initialize the DQueue manager and spawn the background task
+    // This proactively re-queues expired inflight messages (at-least-once delivery)
+    let dqueue_manager = Arc::new(DQueueManager::new());
+    let dqueue_store = store.clone();
+    let dqueue_handle = dqueue_manager.clone();
+    let dqueue_task = tokio::spawn(async move {
+        dqueue_handle.run(dqueue_store).await;
+    });
+
     // Configure and create the server
     let server_config = ServerConfig {
         bind_addr,
@@ -201,6 +210,9 @@ async fn main() -> anyhow::Result<()> {
     // Shutdown the expiry manager
     expiry_manager.shutdown();
 
+    // Shutdown the DQueue manager
+    dqueue_manager.shutdown();
+
     // Shutdown AOF writer
     if let Some(aof) = aof_writer {
         info!("Shutting down AOF writer...");
@@ -217,6 +229,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         let _ = server_task.await;
         let _ = expiry_task.await;
+        let _ = dqueue_task.await;
     })
     .await;
 

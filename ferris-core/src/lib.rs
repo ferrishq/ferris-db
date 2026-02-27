@@ -45,6 +45,7 @@
 #![cfg_attr(test, allow(unused_must_use, unused_mut))]
 
 pub mod blocking;
+pub mod dqueue_manager;
 pub mod expiry;
 pub mod memory;
 pub mod pubsub;
@@ -54,6 +55,7 @@ pub mod value;
 pub mod watch_registry;
 
 pub use blocking::BlockingRegistry;
+pub use dqueue_manager::DQueueManager;
 pub use expiry::ExpiryManager;
 pub use memory::{EvictionPolicy, MemoryTracker};
 pub use pubsub::{PubSubMessage, PubSubRegistry, SubscriberId};

@@ -264,6 +264,20 @@ impl Database {
             .collect()
     }
 
+    /// Get all keys for which `predicate` returns `true`.
+    /// Note: This is O(n) and should be used sparingly (e.g. background tasks).
+    #[must_use]
+    pub fn scan_keys_matching<F>(&self, predicate: F) -> Vec<Vec<u8>>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        self.data
+            .iter()
+            .filter(|r| predicate(r.key()))
+            .map(|r| r.key().to_vec())
+            .collect()
+    }
+
     /// Sample up to `count` random keys from the database
     /// Returns keys with their entries for eviction selection
     #[must_use]
