@@ -2,7 +2,7 @@
 
 use crate::{CommandContext, CommandError, CommandResult};
 use bytes::Bytes;
-use ferris_core::{Entry, RedisValue};
+use ferris_core::{store::UpdateAction, Entry, RedisValue};
 use ferris_protocol::RespValue;
 use std::time::Duration;
 
@@ -474,34 +474,37 @@ fn incrby_impl(
 
     let db = ctx.store().database(ctx.selected_db());
 
-    let current = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                0
-            } else {
-                match &entry.value {
-                    RedisValue::String(s) => {
-                        let s_str =
-                            std::str::from_utf8(s).map_err(|_| CommandError::NotAnInteger)?;
-                        s_str
-                            .parse::<i64>()
-                            .map_err(|_| CommandError::NotAnInteger)?
+    // Use db.update() so the entire read-parse-compute-write happens under a
+    // single DashMap shard lock — eliminating the TOCTOU race that occurred
+    // when two concurrent INCRs both read the same old value before either wrote.
+    let result: Result<i64, CommandError> = db.update(key.clone(), |entry| {
+        let current: i64 = match entry {
+            Some(e) => match &e.value {
+                RedisValue::String(s) => {
+                    let s_str = match std::str::from_utf8(s) {
+                        Ok(v) => v,
+                        Err(_) => return (UpdateAction::Keep, Err(CommandError::NotAnInteger)),
+                    };
+                    match s_str.parse::<i64>() {
+                        Ok(v) => v,
+                        Err(_) => return (UpdateAction::Keep, Err(CommandError::NotAnInteger)),
                     }
-                    _ => return Err(CommandError::WrongType),
                 }
-            }
-        }
-        None => 0,
-    };
+                _ => return (UpdateAction::Keep, Err(CommandError::WrongType)),
+            },
+            None => 0,
+        };
 
-    let new_value = current
-        .checked_add(increment)
-        .ok_or(CommandError::NotAnInteger)?;
-    db.set(
-        key.clone(),
-        Entry::new(RedisValue::String(Bytes::from(new_value.to_string()))),
-    );
+        let new_value = match current.checked_add(increment) {
+            Some(v) => v,
+            None => return (UpdateAction::Keep, Err(CommandError::NotAnInteger)),
+        };
+
+        let new_entry = Entry::new(RedisValue::String(Bytes::from(new_value.to_string())));
+        (UpdateAction::Set(new_entry), Ok(new_value))
+    });
+
+    let new_value = result?;
 
     // Propagate to AOF and replication
     ctx.propagate_with_name(cmd_name, args);
@@ -524,39 +527,41 @@ pub fn incrbyfloat(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
 
     let db = ctx.store().database(ctx.selected_db());
 
-    let current = match db.get(&key) {
-        Some(entry) => {
-            if entry.is_expired() {
-                db.delete(&key);
-                0.0
-            } else {
-                match &entry.value {
-                    RedisValue::String(s) => {
-                        let s_str = std::str::from_utf8(s).map_err(|_| CommandError::NotAFloat)?;
-                        s_str.parse::<f64>().map_err(|_| CommandError::NotAFloat)?
+    // Atomic read-compute-write under one shard lock (same fix as incrby_impl).
+    let result: Result<String, CommandError> = db.update(key.clone(), |entry| {
+        let current: f64 = match entry {
+            Some(e) => match &e.value {
+                RedisValue::String(s) => {
+                    let s_str = match std::str::from_utf8(s) {
+                        Ok(v) => v,
+                        Err(_) => return (UpdateAction::Keep, Err(CommandError::NotAFloat)),
+                    };
+                    match s_str.parse::<f64>() {
+                        Ok(v) => v,
+                        Err(_) => return (UpdateAction::Keep, Err(CommandError::NotAFloat)),
                     }
-                    _ => return Err(CommandError::WrongType),
                 }
-            }
+                _ => return (UpdateAction::Keep, Err(CommandError::WrongType)),
+            },
+            None => 0.0,
+        };
+
+        let new_value = current + increment;
+        if new_value.is_nan() || new_value.is_infinite() {
+            return (UpdateAction::Keep, Err(CommandError::NotAFloat));
         }
-        None => 0.0,
-    };
 
-    let new_value = current + increment;
-    if new_value.is_nan() || new_value.is_infinite() {
-        return Err(CommandError::NotAFloat);
-    }
+        let formatted = if new_value.fract() == 0.0 {
+            format!("{}", new_value as i64)
+        } else {
+            format!("{new_value}")
+        };
 
-    let formatted = if new_value.fract() == 0.0 {
-        format!("{}", new_value as i64)
-    } else {
-        format!("{new_value}")
-    };
+        let new_entry = Entry::new(RedisValue::String(Bytes::from(formatted.clone())));
+        (UpdateAction::Set(new_entry), Ok(formatted))
+    });
 
-    db.set(
-        key.clone(),
-        Entry::new(RedisValue::String(Bytes::from(formatted.clone()))),
-    );
+    let formatted = result?;
 
     // Propagate to AOF and replication
     ctx.propagate(&[

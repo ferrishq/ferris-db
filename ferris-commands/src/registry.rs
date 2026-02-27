@@ -1143,6 +1143,19 @@ pub fn register_all_commands(registry: &mut CommandRegistry) {
         "MIGRATE",
         cmd("MIGRATE", -6, write_flags(), crate::cluster::migrate),
     );
+
+    // Distributed lock commands
+    registry.register(
+        "DLOCK",
+        cmd("DLOCK", -2, write_flags(), crate::dlock::dlock),
+    );
+
+    // Distributed queue commands
+    registry.register(
+        "DQUEUE",
+        cmd("DQUEUE", -2, write_flags(), crate::dqueue::dqueue),
+    );
+
     registry.register(
         "PSYNC",
         cmd("PSYNC", 3, admin_flags(), crate::replication::psync),

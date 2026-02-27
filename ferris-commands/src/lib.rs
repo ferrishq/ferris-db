@@ -101,6 +101,8 @@ pub mod registry;
 pub mod acl;
 pub mod cluster;
 pub mod connection;
+pub mod dlock;
+pub mod dqueue;
 pub mod geo;
 pub mod hash;
 pub mod hyperloglog;
