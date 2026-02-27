@@ -2,7 +2,7 @@
 
 use crate::{CommandContext, CommandError, CommandResult};
 use bytes::Bytes;
-use ferris_core::{Entry, RedisValue};
+use ferris_core::{deserialize, serialize, Entry, RedisValue};
 use ferris_protocol::RespValue;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -856,15 +856,24 @@ pub fn object(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 }
 
 /// DUMP key
+/// DUMP key
 ///
-/// Serialize the value stored at key (simplified - returns type + value).
+/// Serialize the value stored at key into a binary payload that can be passed
+/// to RESTORE to recreate the value on another server.
 ///
-/// Time complexity: O(1) to access the key and additional O(N*M) for serialization
+/// Returns a bulk string containing the serialized value, or nil if key does
+/// not exist.
+///
+/// Time complexity: O(1) for strings; O(N) for collections of size N.
 pub fn dump(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let key = get_bytes(
         args.first()
             .ok_or_else(|| CommandError::WrongArity("DUMP".to_string()))?,
     )?;
+
+    if args.len() != 1 {
+        return Err(CommandError::WrongArity("DUMP".to_string()));
+    }
 
     let db = ctx.store().database(ctx.selected_db());
 
@@ -874,17 +883,8 @@ pub fn dump(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 db.delete(&key);
                 return Ok(RespValue::Null);
             }
-            // Simplified dump - just return type info
-            let type_byte = match &entry.value {
-                RedisValue::String(_) => 0u8,
-                RedisValue::List(_) => 1u8,
-                RedisValue::Set(_) => 2u8,
-                RedisValue::Hash(_) => 4u8,
-                RedisValue::SortedSet { .. } => 3u8,
-                RedisValue::Stream(_) => 15u8,
-            };
-            // Very simplified serialization
-            Ok(RespValue::BulkString(Bytes::from(vec![type_byte])))
+            let payload = serialize(&entry.value);
+            Ok(RespValue::BulkString(payload))
         }
         None => Ok(RespValue::Null),
     }
@@ -892,9 +892,13 @@ pub fn dump(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
 /// RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency]
 ///
-/// Create a key using the provided serialized value (simplified).
+/// Create a key using the provided serialized value (from DUMP).
 ///
-/// Time complexity: O(1)
+/// - `ttl` is the time-to-live in milliseconds (0 = no expiry).
+/// - `REPLACE` allows overwriting an existing key.
+/// - `ABSTTL` treats ttl as an absolute Unix timestamp in milliseconds.
+///
+/// Time complexity: O(1) for strings; O(N) for collections of size N.
 pub fn restore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 3 {
         return Err(CommandError::WrongArity("RESTORE".to_string()));
@@ -902,25 +906,38 @@ pub fn restore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let key = get_bytes(&args[0])?;
     let ttl_ms = parse_int(&args[1])?;
-    let _data = get_bytes(&args[2])?;
+    let data = get_bytes(&args[2])?;
 
+    // Parse optional flags
     let mut replace = false;
+    let mut absttl = false;
     let mut i = 3;
     while i < args.len() {
-        if let Some(opt) = args[i].as_str() {
-            if opt.to_uppercase() == "REPLACE" {
-                replace = true;
+        match args[i].as_str().map(|s| s.to_uppercase()).as_deref() {
+            Some("REPLACE") => replace = true,
+            Some("ABSTTL") => absttl = true,
+            // IDLETIME and FREQ are advisory — accepted and ignored
+            #[allow(clippy::unnested_or_patterns)]
+            Some("IDLETIME") | Some("FREQ") => {
+                i += 1; // skip the following numeric argument
             }
+            _ => {}
         }
         i += 1;
     }
 
+    if ttl_ms < 0 {
+        return Err(CommandError::InvalidArgument(
+            "invalid expire time in 'restore' command".to_string(),
+        ));
+    }
+
     let db = ctx.store().database(ctx.selected_db());
 
-    // Check if key exists
+    // Key-existence check
     if !replace {
-        if let Some(entry) = db.get(&key) {
-            if !entry.is_expired() {
+        if let Some(existing) = db.get(&key) {
+            if !existing.is_expired() {
                 return Err(CommandError::InvalidArgument(
                     "BUSYKEY Target key name already exists".to_string(),
                 ));
@@ -928,10 +945,29 @@ pub fn restore(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         }
     }
 
-    // Create a simple string entry (simplified restore)
-    let mut entry = Entry::new(RedisValue::String(Bytes::from("restored")));
+    // Deserialize
+    let value = deserialize(&data)
+        .map_err(|e| CommandError::InvalidArgument(format!("DUMP payload error: {e}")))?;
+
+    let mut entry = Entry::new(value);
+
+    // Set TTL
     if ttl_ms > 0 {
-        entry.set_ttl(Duration::from_millis(ttl_ms as u64));
+        if absttl {
+            // Absolute Unix timestamp in ms → convert to Instant
+            let target_unix_ms = ttl_ms as u64;
+            let now_unix_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if target_unix_ms > now_unix_ms {
+                let remaining_ms = target_unix_ms - now_unix_ms;
+                entry.set_ttl(Duration::from_millis(remaining_ms));
+            }
+            // if already expired, don't set TTL (key will expire immediately)
+        } else {
+            entry.set_ttl(Duration::from_millis(ttl_ms as u64));
+        }
     }
 
     db.set(key, entry);
@@ -7712,6 +7748,12 @@ mod tests {
 
     // ==================== DUMP tests ====================
 
+    /// Helper: serialize a RedisValue using ferris_core and return Bytes payload.
+    fn make_payload(value: RedisValue) -> RespValue {
+        let payload = ferris_core::serialize(&value);
+        RespValue::BulkString(payload)
+    }
+
     #[test]
     fn test_dump_wrong_arity() {
         let mut ctx = make_ctx();
@@ -7724,7 +7766,13 @@ mod tests {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "mystr", "hello");
         let result = dump(&mut ctx, &[bulk("mystr")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // Real format: magic 0xFE 0xDB, version 0x01, type tag 0x00 for String
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..3], &[0xFE, 0xDB, 0x01]);
+            assert_eq!(payload[3], 0x00); // STRING tag
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7737,7 +7785,12 @@ mod tests {
             db.set(Bytes::from("mylist"), Entry::new(RedisValue::List(list)));
         }
         let result = dump(&mut ctx, &[bulk("mylist")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![1u8])));
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..3], &[0xFE, 0xDB, 0x01]);
+            assert_eq!(payload[3], 0x01); // LIST tag
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7750,7 +7803,12 @@ mod tests {
             db.set(Bytes::from("myset"), Entry::new(RedisValue::Set(set)));
         }
         let result = dump(&mut ctx, &[bulk("myset")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![2u8])));
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..3], &[0xFE, 0xDB, 0x01]);
+            assert_eq!(payload[3], 0x02); // SET tag
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7768,7 +7826,12 @@ mod tests {
             );
         }
         let result = dump(&mut ctx, &[bulk("myzset")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![3u8])));
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..3], &[0xFE, 0xDB, 0x01]);
+            assert_eq!(payload[3], 0x04); // ZSET tag
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7781,7 +7844,12 @@ mod tests {
             db.set(Bytes::from("myhash"), Entry::new(RedisValue::Hash(hash)));
         }
         let result = dump(&mut ctx, &[bulk("myhash")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![4u8])));
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..3], &[0xFE, 0xDB, 0x01]);
+            assert_eq!(payload[3], 0x03); // HASH tag
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7856,7 +7924,12 @@ mod tests {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "key with spaces!", "val");
         let result = dump(&mut ctx, &[bulk("key with spaces!")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // Should return a valid serialized payload (starts with magic)
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..2], &[0xFE, 0xDB]);
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7864,7 +7937,12 @@ mod tests {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "", "val");
         let result = dump(&mut ctx, &[bulk("")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // Empty key name is valid; result is a serialized string payload
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(&payload[..2], &[0xFE, 0xDB]);
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7872,8 +7950,12 @@ mod tests {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "k", "");
         let result = dump(&mut ctx, &[bulk("k")]).unwrap();
-        // Still a string type, byte 0
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // Empty string value is still type STRING (tag 0x00)
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(payload[3], 0x00);
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
@@ -7888,8 +7970,13 @@ mod tests {
         }
         let r1 = dump(&mut ctx, &[bulk("s1")]).unwrap();
         let r2 = dump(&mut ctx, &[bulk("l1")]).unwrap();
-        assert_eq!(r1, RespValue::BulkString(Bytes::from(vec![0u8])));
-        assert_eq!(r2, RespValue::BulkString(Bytes::from(vec![1u8])));
+        // String has tag 0x00, List has tag 0x01
+        if let (RespValue::BulkString(p1), RespValue::BulkString(p2)) = (r1, r2) {
+            assert_eq!(p1[3], 0x00);
+            assert_eq!(p2[3], 0x01);
+        } else {
+            panic!("expected two BulkStrings");
+        }
     }
 
     #[test]
@@ -7903,16 +7990,21 @@ mod tests {
             db.set(Bytes::from("k"), entry);
         }
         let result = dump(&mut ctx, &[bulk("k")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // Key is not expired → returns serialized payload
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(payload[3], 0x00); // STRING tag
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
     fn test_dump_extra_args_ignored() {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "k", "v");
-        // dump only uses args[0], extra args are ignored
-        let result = dump(&mut ctx, &[bulk("k"), bulk("extra")]).unwrap();
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // dump only uses args[0]; extra args cause WrongArity now
+        let result = dump(&mut ctx, &[bulk("k"), bulk("extra")]);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -7936,8 +8028,12 @@ mod tests {
             db.set(Bytes::from("biglist"), Entry::new(RedisValue::List(list)));
         }
         let result = dump(&mut ctx, &[bulk("biglist")]).unwrap();
-        // Still type byte 1 regardless of element count
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![1u8])));
+        // Should be LIST tag (0x01) regardless of element count
+        if let RespValue::BulkString(payload) = result {
+            assert_eq!(payload[3], 0x01);
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     // ==================== RESTORE tests ====================
@@ -7966,12 +8062,13 @@ mod tests {
     #[test]
     fn test_restore_basic() {
         let mut ctx = make_ctx();
-        let result = restore(&mut ctx, &[bulk("newkey"), bulk("0"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("hello")));
+        let result = restore(&mut ctx, &[bulk("newkey"), bulk("0"), payload]).unwrap();
         assert_eq!(result, RespValue::ok());
         let db = ctx.store().database(ctx.selected_db());
         let entry = db.get(b"newkey").unwrap();
         match &entry.value {
-            RedisValue::String(s) => assert_eq!(s.as_ref(), b"restored"),
+            RedisValue::String(s) => assert_eq!(s.as_ref(), b"hello"),
             _ => panic!("expected string"),
         }
     }
@@ -7979,14 +8076,16 @@ mod tests {
     #[test]
     fn test_restore_returns_ok() {
         let mut ctx = make_ctx();
-        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), payload]).unwrap();
         assert_eq!(result, RespValue::ok());
     }
 
     #[test]
     fn test_restore_with_zero_ttl_no_expiry() {
         let mut ctx = make_ctx();
-        restore(&mut ctx, &[bulk("k"), bulk("0"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        restore(&mut ctx, &[bulk("k"), bulk("0"), payload]).unwrap();
         let db = ctx.store().database(ctx.selected_db());
         let entry = db.get(b"k").unwrap();
         assert!(entry.expires_at.is_none());
@@ -7995,7 +8094,8 @@ mod tests {
     #[test]
     fn test_restore_with_positive_ttl_sets_expiry() {
         let mut ctx = make_ctx();
-        restore(&mut ctx, &[bulk("k"), bulk("5000"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        restore(&mut ctx, &[bulk("k"), bulk("5000"), payload]).unwrap();
         let db = ctx.store().database(ctx.selected_db());
         let entry = db.get(b"k").unwrap();
         assert!(entry.expires_at.is_some());
@@ -8005,7 +8105,8 @@ mod tests {
     fn test_restore_key_exists_without_replace_errors() {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "existing", "value");
-        let result = restore(&mut ctx, &[bulk("existing"), bulk("0"), bulk("data")]);
+        let payload = make_payload(RedisValue::String(Bytes::from("new")));
+        let result = restore(&mut ctx, &[bulk("existing"), bulk("0"), payload]);
         assert!(result.is_err());
         match result {
             Err(CommandError::InvalidArgument(msg)) => {
@@ -8019,16 +8120,17 @@ mod tests {
     fn test_restore_key_exists_with_replace_succeeds() {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "existing", "old");
+        let payload = make_payload(RedisValue::String(Bytes::from("newval")));
         let result = restore(
             &mut ctx,
-            &[bulk("existing"), bulk("0"), bulk("data"), bulk("REPLACE")],
+            &[bulk("existing"), bulk("0"), payload, bulk("REPLACE")],
         )
         .unwrap();
         assert_eq!(result, RespValue::ok());
         let db = ctx.store().database(ctx.selected_db());
         let entry = db.get(b"existing").unwrap();
         match &entry.value {
-            RedisValue::String(s) => assert_eq!(s.as_ref(), b"restored"),
+            RedisValue::String(s) => assert_eq!(s.as_ref(), b"newval"),
             _ => panic!("expected string"),
         }
     }
@@ -8037,11 +8139,8 @@ mod tests {
     fn test_restore_replace_flag_case_insensitive() {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "k", "old");
-        let result = restore(
-            &mut ctx,
-            &[bulk("k"), bulk("0"), bulk("data"), bulk("replace")],
-        )
-        .unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("new")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), payload, bulk("replace")]).unwrap();
         assert_eq!(result, RespValue::ok());
     }
 
@@ -8049,18 +8148,16 @@ mod tests {
     fn test_restore_replace_flag_mixed_case() {
         let mut ctx = make_ctx();
         set_key(&mut ctx, "k", "old");
-        let result = restore(
-            &mut ctx,
-            &[bulk("k"), bulk("0"), bulk("data"), bulk("Replace")],
-        )
-        .unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("new")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), payload, bulk("Replace")]).unwrap();
         assert_eq!(result, RespValue::ok());
     }
 
     #[test]
     fn test_restore_non_integer_ttl_errors() {
         let mut ctx = make_ctx();
-        let result = restore(&mut ctx, &[bulk("k"), bulk("abc"), bulk("data")]);
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("abc"), payload]);
         assert!(result.is_err());
     }
 
@@ -8075,19 +8172,20 @@ mod tests {
             db.set(Bytes::from("k"), entry);
         }
         // Key is expired, so restore without REPLACE should succeed
-        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("new")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), payload]).unwrap();
         assert_eq!(result, RespValue::ok());
     }
 
     #[test]
     fn test_restore_creates_value_from_serialized_data() {
         let mut ctx = make_ctx();
-        // Regardless of what serialized data we pass, the simplified restore always creates "restored"
-        restore(&mut ctx, &[bulk("k"), bulk("0"), bulk("anything")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("thevalue")));
+        restore(&mut ctx, &[bulk("k"), bulk("0"), payload]).unwrap();
         let db = ctx.store().database(ctx.selected_db());
         let entry = db.get(b"k").unwrap();
         match &entry.value {
-            RedisValue::String(s) => assert_eq!(s.as_ref(), b"restored"),
+            RedisValue::String(s) => assert_eq!(s.as_ref(), b"thevalue"),
             _ => panic!("expected string"),
         }
     }
@@ -8095,11 +8193,8 @@ mod tests {
     #[test]
     fn test_restore_special_chars_key() {
         let mut ctx = make_ctx();
-        let result = restore(
-            &mut ctx,
-            &[bulk("key with spaces!"), bulk("0"), bulk("data")],
-        )
-        .unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        let result = restore(&mut ctx, &[bulk("key with spaces!"), bulk("0"), payload]).unwrap();
         assert_eq!(result, RespValue::ok());
         let db = ctx.store().database(ctx.selected_db());
         assert!(db.get(b"key with spaces!").is_some());
@@ -8108,7 +8203,8 @@ mod tests {
     #[test]
     fn test_restore_empty_key_name() {
         let mut ctx = make_ctx();
-        let result = restore(&mut ctx, &[bulk(""), bulk("0"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        let result = restore(&mut ctx, &[bulk(""), bulk("0"), payload]).unwrap();
         assert_eq!(result, RespValue::ok());
         let db = ctx.store().database(ctx.selected_db());
         assert!(db.get(b"").is_some());
@@ -8123,11 +8219,8 @@ mod tests {
             list.push_back(Bytes::from("item"));
             db.set(Bytes::from("k"), Entry::new(RedisValue::List(list)));
         }
-        let result = restore(
-            &mut ctx,
-            &[bulk("k"), bulk("0"), bulk("data"), bulk("REPLACE")],
-        )
-        .unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("newstr")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), payload, bulk("REPLACE")]).unwrap();
         assert_eq!(result, RespValue::ok());
         let db = ctx.store().database(ctx.selected_db());
         let entry = db.get(b"k").unwrap();
@@ -8143,27 +8236,33 @@ mod tests {
             set.insert(Bytes::from("member"));
             db.set(Bytes::from("k"), Entry::new(RedisValue::Set(set)));
         }
-        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), bulk("data")]);
+        // Key exists (is a set), RESTORE without REPLACE must fail with BUSYKEY
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("0"), payload]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_restore_then_dump_returns_string_type() {
         let mut ctx = make_ctx();
-        restore(&mut ctx, &[bulk("k"), bulk("0"), bulk("data")]).unwrap();
+        let payload = make_payload(RedisValue::String(Bytes::from("hello")));
+        restore(&mut ctx, &[bulk("k"), bulk("0"), payload]).unwrap();
         let result = dump(&mut ctx, &[bulk("k")]).unwrap();
-        // restore creates a string, so dump should return type byte 0
-        assert_eq!(result, RespValue::BulkString(Bytes::from(vec![0u8])));
+        // restore creates a string, so dump should return type STRING (tag 0x00)
+        if let RespValue::BulkString(p) = result {
+            assert_eq!(p[3], 0x00);
+        } else {
+            panic!("expected BulkString");
+        }
     }
 
     #[test]
     fn test_restore_negative_ttl_treated_as_no_expiry() {
         let mut ctx = make_ctx();
-        // TTL -1 means "no expiry" since ttl_ms > 0 check won't trigger
-        restore(&mut ctx, &[bulk("k"), bulk("-1"), bulk("data")]).unwrap();
-        let db = ctx.store().database(ctx.selected_db());
-        let entry = db.get(b"k").unwrap();
-        assert!(entry.expires_at.is_none());
+        // Negative TTL should return an error (real Redis behavior)
+        let payload = make_payload(RedisValue::String(Bytes::from("v")));
+        let result = restore(&mut ctx, &[bulk("k"), bulk("-1"), payload]);
+        assert!(result.is_err());
     }
 
     // SORT tests

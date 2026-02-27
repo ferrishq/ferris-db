@@ -68,6 +68,28 @@ impl TestClient {
         self.read_response_timeout(timeout).await
     }
 
+    /// Send a command where arguments may contain arbitrary binary data.
+    ///
+    /// Unlike `cmd`, which takes `&[&str]`, this accepts `&[&[u8]]` so that
+    /// binary payloads (e.g. DUMP output) can be sent without UTF-8 conversion.
+    pub async fn cmd_raw(&mut self, args: &[&[u8]]) -> RespValue {
+        let cmd = RespValue::Array(
+            args.iter()
+                .map(|b| RespValue::BulkString(Bytes::copy_from_slice(b)))
+                .collect(),
+        );
+
+        let mut buf = BytesMut::new();
+        resp2::serialize(&cmd, &mut buf);
+
+        self.stream
+            .write_all(&buf)
+            .await
+            .expect("failed to write raw command");
+
+        self.read_response().await
+    }
+
     /// Send a raw command without reading the response.
     /// Useful for blocking commands where you want to send from another client first.
     pub async fn send_raw(&mut self, args: &[&str]) {

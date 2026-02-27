@@ -48,6 +48,7 @@ pub mod blocking;
 pub mod expiry;
 pub mod memory;
 pub mod pubsub;
+pub mod serialization;
 pub mod store;
 pub mod value;
 pub mod watch_registry;
@@ -56,6 +57,7 @@ pub use blocking::BlockingRegistry;
 pub use expiry::ExpiryManager;
 pub use memory::{EvictionPolicy, MemoryTracker};
 pub use pubsub::{PubSubMessage, PubSubRegistry, SubscriberId};
+pub use serialization::{deserialize, serialize, SerdeError};
 pub use store::{Database, KeyStore, UpdateAction};
 pub use value::{
     Consumer, ConsumerGroup, Entry, PendingEntry, RedisValue, StreamData, StreamEntry, StreamId,

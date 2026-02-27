@@ -291,8 +291,7 @@ mod tests {
         let store = Arc::new(KeyStore::new(16));
         let mut ctx = CommandContext::new(store);
 
-        // Basic MIGRATE command should parse without error
-        // MIGRATE host port key destination-db timeout
+        // Basic MIGRATE command: key does not exist → returns NOKEY
         let result = migrate(
             &mut ctx,
             &[
@@ -304,12 +303,11 @@ mod tests {
             ],
         );
 
-        // Should return NotImplemented for now
-        assert!(result.is_err());
-        match result {
-            Err(CommandError::NotImplemented(_)) => (),
-            _ => panic!("Expected NotImplemented error"),
-        }
+        // Key doesn't exist, so MIGRATE returns +NOKEY
+        assert_eq!(
+            result.unwrap(),
+            RespValue::SimpleString("NOKEY".to_string())
+        );
     }
 
     #[test]
@@ -343,8 +341,11 @@ mod tests {
             ],
         );
 
-        // Should parse COPY flag correctly and return NotImplemented
-        assert!(matches!(result, Err(CommandError::NotImplemented(_))));
+        // Key doesn't exist → NOKEY (COPY flag accepted, parsing correct)
+        assert_eq!(
+            result.unwrap(),
+            RespValue::SimpleString("NOKEY".to_string())
+        );
     }
 
     #[test]
@@ -364,7 +365,11 @@ mod tests {
             ],
         );
 
-        assert!(matches!(result, Err(CommandError::NotImplemented(_))));
+        // Key doesn't exist → NOKEY (REPLACE flag accepted, parsing correct)
+        assert_eq!(
+            result.unwrap(),
+            RespValue::SimpleString("NOKEY".to_string())
+        );
     }
 
     #[test]
@@ -425,8 +430,11 @@ mod tests {
             ],
         );
 
-        // Should parse KEYS option correctly and return NotImplemented
-        assert!(matches!(result, Err(CommandError::NotImplemented(_))));
+        // Keys don't exist → NOKEY (KEYS option accepted, parsing correct)
+        assert_eq!(
+            result.unwrap(),
+            RespValue::SimpleString("NOKEY".to_string())
+        );
     }
 
     // Tests for redirect logic
@@ -943,11 +951,20 @@ pub fn asking(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
 /// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [AUTH2 username password] [KEYS key [key ...]]
 ///
-/// Atomically transfer a key from a source Redis instance to a destination instance.
-/// This is used for slot migration in Redis Cluster.
+/// Atomically transfer one or more keys from this instance to a destination
+/// instance using DUMP + RESTORE over a raw TCP connection.
 ///
-/// Time complexity: O(N) where N is the number of keys to migrate
-pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
+/// Flow:
+/// 1. Serialize each key with `serialize()`.
+/// 2. Open a TCP connection to `host:port`.
+/// 3. Optionally authenticate with AUTH / AUTH2.
+/// 4. Send a pipelined RESTORE command for each key.
+/// 5. Unless COPY is set, delete the keys from this node.
+///
+/// Returns `+OK` on success, or an error on any failure.
+///
+/// Time complexity: O(N·M) where N is the number of keys and M is value size.
+pub fn migrate(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     // Minimum: MIGRATE host port key destination-db timeout
     if args.len() < 5 {
         return Err(CommandError::WrongArity("MIGRATE".to_string()));
@@ -955,7 +972,8 @@ pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let host = args[0]
         .as_str()
-        .ok_or_else(|| CommandError::InvalidArgument("invalid host".to_string()))?;
+        .ok_or_else(|| CommandError::InvalidArgument("invalid host".to_string()))?
+        .to_string();
 
     let port_str = args[1]
         .as_str()
@@ -966,7 +984,8 @@ pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 
     let key_arg = args[2]
         .as_str()
-        .ok_or_else(|| CommandError::InvalidArgument("invalid key".to_string()))?;
+        .ok_or_else(|| CommandError::InvalidArgument("invalid key".to_string()))?
+        .to_string();
 
     let db_str = args[3]
         .as_str()
@@ -978,13 +997,16 @@ pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let timeout_str = args[4]
         .as_str()
         .ok_or_else(|| CommandError::InvalidArgument("invalid timeout".to_string()))?;
-    let _timeout: u64 = timeout_str
+    let timeout_ms: u64 = timeout_str
         .parse()
         .map_err(|_| CommandError::InvalidArgument("invalid timeout number".to_string()))?;
 
     // Parse optional flags
     let mut copy = false;
     let mut replace = false;
+    let mut auth_password: Option<String> = None;
+    let mut auth2_user: Option<String> = None;
+    let mut auth2_pass: Option<String> = None;
     let mut keys_to_migrate: Vec<bytes::Bytes> = Vec::new();
 
     let mut i = 5;
@@ -1007,21 +1029,39 @@ pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 if i + 1 >= args.len() {
                     return Err(CommandError::Syntax);
                 }
-                // Parse password but don't use it yet (TODO: implement authentication)
-                let _password = args[i + 1]
-                    .as_str()
-                    .ok_or_else(|| CommandError::InvalidArgument("invalid password".to_string()))?;
+                auth_password = Some(
+                    args[i + 1]
+                        .as_str()
+                        .ok_or_else(|| {
+                            CommandError::InvalidArgument("invalid password".to_string())
+                        })?
+                        .to_string(),
+                );
                 i += 2;
             }
             "AUTH2" => {
-                // AUTH2 username password
                 if i + 2 >= args.len() {
                     return Err(CommandError::Syntax);
                 }
+                auth2_user = Some(
+                    args[i + 1]
+                        .as_str()
+                        .ok_or_else(|| {
+                            CommandError::InvalidArgument("invalid username".to_string())
+                        })?
+                        .to_string(),
+                );
+                auth2_pass = Some(
+                    args[i + 2]
+                        .as_str()
+                        .ok_or_else(|| {
+                            CommandError::InvalidArgument("invalid password".to_string())
+                        })?
+                        .to_string(),
+                );
                 i += 3;
             }
             "KEYS" => {
-                // KEYS key [key ...]
                 i += 1;
                 while i < args.len() {
                     let key = args[i]
@@ -1047,22 +1087,233 @@ pub fn migrate(_ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 "empty key with no KEYS option".to_string(),
             ));
         }
-        keys_to_migrate.push(bytes::Bytes::from(key_arg.to_string()));
+        keys_to_migrate.push(bytes::Bytes::from(key_arg));
     }
 
-    // For now, return a stub implementation
-    // TODO: Implement actual migration logic
-    // This would involve:
-    // 1. Serialize keys using DUMP
-    // 2. Connect to destination host:port
-    // 3. Send RESTORE commands
-    // 4. Delete keys from source (unless COPY flag)
+    // ── Serialize all keys from the local store ────────────────────────────
+    let src_db = ctx.store().database(ctx.selected_db());
+    let timeout = std::time::Duration::from_millis(timeout_ms.max(1));
 
-    let _ = (host, port, destination_db, copy, replace, keys_to_migrate);
+    // Collect (key, serialized_payload, ttl_ms) for each existing key
+    let mut payloads: Vec<(bytes::Bytes, bytes::Bytes, u64)> = Vec::new();
+    for key in &keys_to_migrate {
+        if let Some(entry) = src_db.get(key) {
+            if entry.is_expired() {
+                src_db.delete(key);
+                continue;
+            }
+            let ttl_ms = entry.ttl_millis().unwrap_or(0);
+            let payload = ferris_core::serialize(&entry.value);
+            payloads.push((key.clone(), payload, ttl_ms));
+        }
+        // If key doesn't exist, we silently skip it (NOKEY is not an error for MIGRATE)
+    }
 
-    Err(CommandError::NotImplemented(
-        "MIGRATE command is not yet fully implemented".to_string(),
-    ))
+    if payloads.is_empty() {
+        return Ok(RespValue::SimpleString("NOKEY".to_string()));
+    }
+
+    // ── Connect to destination and send RESTORE commands ──────────────────
+    // MIGRATE needs async TCP I/O from a synchronous command handler.
+    //
+    // `block_in_place` releases the current Tokio worker thread to the
+    // scheduler while we create a new single-thread runtime for the
+    // migration TCP session. This requires a multi-thread Tokio runtime
+    // (the production server and TestServer both use one).
+    let addr = format!("{host}:{port}");
+    let result = tokio::task::block_in_place(|| {
+        let addr2 = addr.clone();
+        let payloads2 = payloads.clone();
+        let auth_password2 = auth_password.clone();
+        let auth2_user2 = auth2_user.clone();
+        let auth2_pass2 = auth2_pass.clone();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        match rt {
+            Ok(rt) => rt.block_on(async move {
+                tokio::time::timeout(
+                    timeout,
+                    do_migrate(
+                        &addr2,
+                        destination_db,
+                        &payloads2,
+                        replace,
+                        auth_password2.as_deref(),
+                        auth2_user2.as_deref(),
+                        auth2_pass2.as_deref(),
+                        timeout,
+                    ),
+                )
+                .await
+                .unwrap_or_else(|_| Err(format!("operation timed out after {timeout:?}")))
+            }),
+            Err(e) => Err(format!("runtime error: {e}")),
+        }
+    });
+
+    match result {
+        Ok(()) => {
+            // ── Delete source keys unless COPY ─────────────────────────────
+            if !copy {
+                for (key, _, _) in &payloads {
+                    src_db.delete(key);
+                }
+            }
+            Ok(RespValue::ok())
+        }
+        Err(e) => Err(CommandError::InvalidArgument(format!(
+            "MIGRATE failed: {e}"
+        ))),
+    }
+}
+
+/// Inner async helper that performs the actual TCP migration.
+///
+/// Uses the RESP2 wire protocol — all commands are sent as RESP arrays and
+/// responses are parsed with the ferris-protocol codec so we handle both
+/// simple-string (`+OK`) and error (`-ERR …`) replies correctly.
+#[allow(clippy::too_many_arguments)]
+async fn do_migrate(
+    addr: &str,
+    destination_db: usize,
+    payloads: &[(bytes::Bytes, bytes::Bytes, u64)],
+    replace: bool,
+    auth_password: Option<&str>,
+    auth2_user: Option<&str>,
+    auth2_pass: Option<&str>,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    use bytes::BytesMut;
+    use ferris_protocol::{resp2, RespValue};
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpStream;
+
+    let stream = tokio::time::timeout(timeout, TcpStream::connect(addr))
+        .await
+        .map_err(|_| format!("connection to {addr} timed out"))?
+        .map_err(|e| format!("cannot connect to {addr}: {e}"))?;
+
+    stream
+        .set_nodelay(true)
+        .map_err(|e| format!("setsockopt: {e}"))?;
+
+    let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut read_buf = BytesMut::with_capacity(4096);
+
+    // ── Optional AUTH ──────────────────────────────────────────────────────
+    if let Some(pass) = auth_password {
+        let cmd = RespValue::Array(vec![
+            RespValue::BulkString(bytes::Bytes::from_static(b"AUTH")),
+            RespValue::BulkString(bytes::Bytes::copy_from_slice(pass.as_bytes())),
+        ]);
+        let mut out = BytesMut::new();
+        resp2::serialize(&cmd, &mut out);
+        writer
+            .write_all(&out)
+            .await
+            .map_err(|e| format!("write error: {e}"))?;
+        let reply = recv_resp(&mut reader, &mut read_buf).await?;
+        if matches!(reply, RespValue::Error(_)) {
+            return Err(format!("AUTH failed: {reply:?}"));
+        }
+    } else if let (Some(user), Some(pass)) = (auth2_user, auth2_pass) {
+        let cmd = RespValue::Array(vec![
+            RespValue::BulkString(bytes::Bytes::from_static(b"AUTH")),
+            RespValue::BulkString(bytes::Bytes::copy_from_slice(user.as_bytes())),
+            RespValue::BulkString(bytes::Bytes::copy_from_slice(pass.as_bytes())),
+        ]);
+        let mut out = BytesMut::new();
+        resp2::serialize(&cmd, &mut out);
+        writer
+            .write_all(&out)
+            .await
+            .map_err(|e| format!("write error: {e}"))?;
+        let reply = recv_resp(&mut reader, &mut read_buf).await?;
+        if matches!(reply, RespValue::Error(_)) {
+            return Err(format!("AUTH2 failed: {reply:?}"));
+        }
+    }
+
+    // ── SELECT destination database ───────────────────────────────────────
+    if destination_db != 0 {
+        let cmd = RespValue::Array(vec![
+            RespValue::BulkString(bytes::Bytes::from_static(b"SELECT")),
+            RespValue::BulkString(bytes::Bytes::copy_from_slice(
+                destination_db.to_string().as_bytes(),
+            )),
+        ]);
+        let mut out = BytesMut::new();
+        resp2::serialize(&cmd, &mut out);
+        writer
+            .write_all(&out)
+            .await
+            .map_err(|e| format!("write error: {e}"))?;
+        let reply = recv_resp(&mut reader, &mut read_buf).await?;
+        if matches!(reply, RespValue::Error(_)) {
+            return Err(format!("SELECT {destination_db} failed: {reply:?}"));
+        }
+    }
+
+    // ── Pipeline RESTORE commands ─────────────────────────────────────────
+    // Build and flush the entire pipeline in one write, then read N replies.
+    let mut pipeline_buf = BytesMut::new();
+    for (key, payload, ttl_ms) in payloads {
+        let mut restore_args = vec![
+            RespValue::BulkString(bytes::Bytes::from_static(b"RESTORE")),
+            RespValue::BulkString(key.clone()),
+            RespValue::BulkString(bytes::Bytes::copy_from_slice(ttl_ms.to_string().as_bytes())),
+            RespValue::BulkString(payload.clone()),
+        ];
+        if replace {
+            restore_args.push(RespValue::BulkString(bytes::Bytes::from_static(b"REPLACE")));
+        }
+        resp2::serialize(&RespValue::Array(restore_args), &mut pipeline_buf);
+    }
+
+    writer
+        .write_all(&pipeline_buf)
+        .await
+        .map_err(|e| format!("pipeline write error: {e}"))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("flush error: {e}"))?;
+
+    // Collect one reply per key
+    for (key, _, _) in payloads {
+        let reply = recv_resp(&mut reader, &mut read_buf).await?;
+        if let RespValue::Error(msg) = reply {
+            let key_str = String::from_utf8_lossy(key);
+            return Err(format!("RESTORE for '{key_str}' failed: {msg}"));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read exactly one RESP2 value from `reader`, buffering into `buf`.
+async fn recv_resp<R>(
+    reader: &mut R,
+    buf: &mut bytes::BytesMut,
+) -> Result<ferris_protocol::RespValue, String>
+where
+    R: tokio::io::AsyncReadExt + Unpin,
+{
+    use ferris_protocol::resp2;
+    loop {
+        if let Some(val) = resp2::parse(buf).map_err(|e| format!("RESP parse error: {e}"))? {
+            return Ok(val);
+        }
+        let n = reader
+            .read_buf(buf)
+            .await
+            .map_err(|e| format!("read error: {e}"))?;
+        if n == 0 {
+            return Err("connection closed unexpectedly".to_string());
+        }
+    }
 }
 
 /// CLUSTER SETSLOT slot MIGRATING|IMPORTING|STABLE|NODE node-id
