@@ -228,10 +228,8 @@ fn parse_inline_command(buf: &mut BytesMut) -> Result<Option<RespValue>, Protoco
     // Find line ending - either \r\n or just \n
     let line_end = if let Some(pos) = find_crlf(buf, 0) {
         Some((pos, 2)) // Found \r\n, consume 2 bytes
-    } else if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-        Some((pos, 1)) // Found \n, consume 1 byte
     } else {
-        None
+        buf.iter().position(|&b| b == b'\n').map(|pos| (pos, 1)) // Found \n, consume 1 byte
     };
 
     let (end, consume) = match line_end {
@@ -266,7 +264,7 @@ fn parse_inline_tokens(line: &str) -> Result<Vec<String>, ProtocolError> {
     let mut tokens = Vec::new();
     let mut current_token = String::new();
     let mut in_quotes = false;
-    let mut chars = line.chars().peekable();
+    let mut chars = line.chars();
 
     while let Some(ch) = chars.next() {
         match ch {

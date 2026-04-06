@@ -46,7 +46,7 @@ struct Args {
     config: Option<String>,
 
     /// Enable AOF persistence
-    #[arg(long, default_value_t = true)]
+    #[arg(long, action = clap::ArgAction::SetTrue)]
     aof: bool,
 
     /// AOF file path

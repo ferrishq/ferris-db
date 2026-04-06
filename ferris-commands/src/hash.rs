@@ -20,10 +20,11 @@ fn parse_float(arg: &RespValue) -> Result<f64, CommandError> {
 }
 
 /// Helper to get bytes from RespValue
+#[inline]
 fn get_bytes(arg: &RespValue) -> Result<Bytes, CommandError> {
     arg.as_bytes()
         .cloned()
-        .or_else(|| arg.as_str().map(|s| Bytes::from(s.to_owned())))
+        .or_else(|| arg.as_str().map(|s| Bytes::copy_from_slice(s.as_bytes())))
         .ok_or_else(|| CommandError::InvalidArgument("invalid argument".to_string()))
 }
 
@@ -103,6 +104,7 @@ pub fn hget(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Sets field(s) in the hash stored at key. Returns the number of new fields added.
 ///
 /// Time complexity: O(N) where N is the number of field-value pairs
+#[inline]
 pub fn hset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 3 || (args.len() - 1) % 2 != 0 {
         return Err(CommandError::WrongArity("HSET".to_string()));

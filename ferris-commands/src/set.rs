@@ -19,10 +19,11 @@ fn parse_int(arg: &RespValue) -> Result<i64, CommandError> {
 }
 
 /// Extract `Bytes` from a RESP value (bulk string or simple string).
+#[inline]
 fn get_bytes(arg: &RespValue) -> Result<Bytes, CommandError> {
     arg.as_bytes()
         .cloned()
-        .or_else(|| arg.as_str().map(|s| Bytes::from(s.to_owned())))
+        .or_else(|| arg.as_str().map(|s| Bytes::copy_from_slice(s.as_bytes())))
         .ok_or_else(|| CommandError::InvalidArgument("invalid argument".to_string()))
 }
 
@@ -84,6 +85,7 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
 /// elements already present).
 ///
 /// Time complexity: O(1) for each element added
+#[inline]
 pub fn sadd(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("SADD".to_string()));

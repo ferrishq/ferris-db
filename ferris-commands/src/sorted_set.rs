@@ -32,10 +32,11 @@ fn parse_float(arg: &RespValue) -> Result<f64, CommandError> {
 }
 
 /// Extract `Bytes` from a `RespValue`.
+#[inline]
 fn get_bytes(arg: &RespValue) -> Result<Bytes, CommandError> {
     arg.as_bytes()
         .cloned()
-        .or_else(|| arg.as_str().map(|s| Bytes::from(s.to_owned())))
+        .or_else(|| arg.as_str().map(|s| Bytes::copy_from_slice(s.as_bytes())))
         .ok_or_else(|| CommandError::InvalidArgument("invalid argument".to_string()))
 }
 

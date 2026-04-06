@@ -14,10 +14,11 @@ fn parse_int(arg: &RespValue) -> Result<i64, CommandError> {
 }
 
 /// Helper to get bytes from RespValue
+#[inline]
 fn get_bytes(arg: &RespValue) -> Result<Bytes, CommandError> {
     arg.as_bytes()
         .cloned()
-        .or_else(|| arg.as_str().map(|s| Bytes::from(s.to_owned())))
+        .or_else(|| arg.as_str().map(|s| Bytes::copy_from_slice(s.as_bytes())))
         .ok_or_else(|| CommandError::InvalidArgument("invalid argument".to_string()))
 }
 
@@ -66,6 +67,7 @@ fn parse_float_timeout(arg: &RespValue) -> Result<f64, CommandError> {
 /// Returns the length of the list after the push operations.
 ///
 /// Time complexity: O(1) per element added, O(N) for N elements.
+#[inline]
 pub fn lpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("LPUSH".to_string()));
@@ -143,6 +145,7 @@ pub fn lpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Returns the length of the list after the push operations.
 ///
 /// Time complexity: O(1) per element added, O(N) for N elements.
+#[inline]
 pub fn rpush(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("RPUSH".to_string()));
@@ -344,6 +347,7 @@ pub fn rpushx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// With count: returns an array of elements, or Null if key does not exist.
 ///
 /// Time complexity: O(N) where N is the number of elements returned.
+#[inline]
 pub fn lpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.is_empty() {
         return Err(CommandError::WrongArity("LPOP".to_string()));
@@ -450,6 +454,7 @@ enum LpopResult {
 /// With count: returns an array of elements, or Null if key does not exist.
 ///
 /// Time complexity: O(N) where N is the number of elements returned.
+#[inline]
 pub fn rpop(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.is_empty() {
         return Err(CommandError::WrongArity("RPOP".to_string()));

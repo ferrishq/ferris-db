@@ -1119,21 +1119,21 @@ impl ConcurrentBenchmarkComparison {
         );
 
         // P99.9 Latency (important for concurrent workloads)
-        let p999_ratio = if self.ferris.p999_us() == 0.0 {
+        let p99_9_ratio = if self.ferris.p999_us() == 0.0 {
             1.0
         } else {
             self.redis.p999_us() / self.ferris.p999_us()
         };
-        let p999_str = if p999_ratio >= 1.0 {
-            format!("{:.2}x lower", p999_ratio).green()
+        let p99_9_display = if p99_9_ratio >= 1.0 {
+            format!("{:.2}x lower", p99_9_ratio).green()
         } else {
-            format!("{:.2}x higher", 1.0 / p999_ratio).red()
+            format!("{:.2}x higher", 1.0 / p99_9_ratio).red()
         };
         println!(
             "  Latency P99.9: Redis {:>8.1} μs     |  ferris-db {:>10.1} μs     ({})",
             self.redis.p999_us(),
             self.ferris.p999_us(),
-            p999_str
+            p99_9_display
         );
     }
 }
@@ -1178,7 +1178,6 @@ impl ConcurrentBenchmarker {
             let latencies = Arc::clone(&all_latencies);
             let ops_counter = Arc::clone(&total_ops);
             let command_gen = Arc::clone(&command_gen);
-            let server_type = server_type;
             let duration_secs = self.config.duration_secs;
 
             let task = tokio::spawn(async move {
@@ -1209,21 +1208,16 @@ impl ConcurrentBenchmarker {
 
                     // Execute and measure
                     let op_start = Instant::now();
-                    match client.cmd(&cmd).await {
-                        Ok(_) => {
-                            let latency_us = op_start.elapsed().as_micros() as u64;
-                            client_latencies.push(latency_us);
-                            ops += 1;
-                        }
-                        Err(_) => {
-                            // Skip failed operations
-                        }
+                    if client.cmd(&cmd).await.is_ok() {
+                        let latency_us = op_start.elapsed().as_micros() as u64;
+                        client_latencies.push(latency_us);
+                        ops += 1;
                     }
+                    // Skip failed operations
                 }
 
                 // Merge this client's results into shared results
-                let mut all = latencies.lock().await;
-                all.extend(client_latencies);
+                latencies.lock().await.extend(client_latencies);
                 ops_counter.fetch_add(ops, std::sync::atomic::Ordering::Relaxed);
 
                 Ok::<(), anyhow::Error>(())
@@ -1306,7 +1300,7 @@ impl ConcurrentBenchmarker {
         };
 
         let redis_result = self
-            .run_single(ServerType::Redis, "GET (concurrent)", command_gen.clone())
+            .run_single(ServerType::Redis, "GET (concurrent)", command_gen)
             .await?;
 
         let ferris_result = self
@@ -1332,7 +1326,7 @@ impl ConcurrentBenchmarker {
         };
 
         let redis_result = self
-            .run_single(ServerType::Redis, "INCR (concurrent)", command_gen.clone())
+            .run_single(ServerType::Redis, "INCR (concurrent)", command_gen)
             .await?;
 
         let ferris_result = self

@@ -19,10 +19,11 @@ fn parse_float(arg: &RespValue) -> Result<f64, CommandError> {
 }
 
 /// Helper to get bytes from RespValue
+#[inline]
 fn get_bytes(arg: &RespValue) -> Result<Bytes, CommandError> {
     arg.as_bytes()
         .cloned()
-        .or_else(|| arg.as_str().map(|s| Bytes::from(s.to_owned())))
+        .or_else(|| arg.as_str().map(|s| Bytes::copy_from_slice(s.as_bytes())))
         .ok_or_else(|| CommandError::InvalidArgument("invalid argument".to_string()))
 }
 
@@ -31,6 +32,7 @@ fn get_bytes(arg: &RespValue) -> Result<Bytes, CommandError> {
 /// Get the value of key. If the key does not exist the special value nil is returned.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn get(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let key = get_bytes(
         args.first()
@@ -59,6 +61,7 @@ pub fn get(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Set key to hold the string value.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn set(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("SET".to_string()));
@@ -157,22 +160,25 @@ pub fn set(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let existing = db.get(&key);
 
     // Handle NX/XX conditions
-    if nx && existing.is_some() && !existing.as_ref().unwrap().is_expired() {
-        return if get_old {
-            match existing.unwrap().value {
-                RedisValue::String(s) => Ok(RespValue::BulkString(s)),
-                _ => Err(CommandError::WrongType),
+    if nx {
+        if let Some(entry) = existing.as_ref() {
+            if !entry.is_expired() {
+                return if get_old {
+                    match &entry.value {
+                        RedisValue::String(s) => Ok(RespValue::BulkString(s.clone())),
+                        _ => Err(CommandError::WrongType),
+                    }
+                } else {
+                    Ok(RespValue::Null)
+                };
             }
-        } else {
-            Ok(RespValue::Null)
-        };
+        }
     }
-    if xx && (existing.is_none() || existing.as_ref().unwrap().is_expired()) {
-        return if get_old {
-            Ok(RespValue::Null)
-        } else {
-            Ok(RespValue::Null)
-        };
+    if xx {
+        let should_reject = existing.as_ref().map_or(true, |e| e.is_expired());
+        if should_reject {
+            return Ok(RespValue::Null);
+        }
     }
 
     // Get old value if requested
@@ -328,6 +334,7 @@ pub fn psetex(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Returns the values of all specified keys.
 ///
 /// Time complexity: O(N) where N is the number of keys
+#[inline]
 pub fn mget(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.is_empty() {
         return Err(CommandError::WrongArity("MGET".to_string()));
@@ -369,6 +376,7 @@ pub fn mget(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Sets the given keys to their respective values.
 ///
 /// Time complexity: O(N) where N is the number of keys
+#[inline]
 pub fn mset(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 || args.len() % 2 != 0 {
         return Err(CommandError::WrongArity("MSET".to_string()));
@@ -444,6 +452,7 @@ pub fn msetnx(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Increments the number stored at key by one.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn incr(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     incrby_impl(ctx, args, 1, "INCR")
 }
@@ -453,6 +462,7 @@ pub fn incr(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Increments the number stored at key by increment.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn incrby(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("INCRBY".to_string()));
@@ -578,6 +588,7 @@ pub fn incrbyfloat(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResul
 /// Decrements the number stored at key by one.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn decr(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     incrby_impl(ctx, args, -1, "DECR")
 }
@@ -587,6 +598,7 @@ pub fn decr(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Decrements the number stored at key by decrement.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn decrby(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("DECRBY".to_string()));
@@ -600,6 +612,7 @@ pub fn decrby(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Appends value to the end of string at key.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn append(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     if args.len() < 2 {
         return Err(CommandError::WrongArity("APPEND".to_string()));
@@ -647,6 +660,7 @@ pub fn append(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
 /// Returns the length of the string value stored at key.
 ///
 /// Time complexity: O(1)
+#[inline]
 pub fn strlen(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
     let key = get_bytes(
         args.first()

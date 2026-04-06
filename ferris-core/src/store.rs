@@ -116,10 +116,10 @@ impl Database {
         let new_size = Self::entry_size(&key, &entry);
 
         // Use entry API for single lock acquisition (atomic get+set)
-        match self.data.entry(key.clone()) {
+        match self.data.entry(key) {
             DashEntry::Occupied(mut occupied) => {
                 // Key exists - calculate old size and replace
-                let old_size = Self::entry_size(&key, occupied.get());
+                let old_size = Self::entry_size(occupied.key(), occupied.get());
                 occupied.insert(entry);
                 // Update memory tracking
                 self.memory_tracker.subtract(old_size);
@@ -455,7 +455,7 @@ impl Database {
     {
         use dashmap::mapref::entry::Entry as DashEntry;
 
-        match self.data.entry(key.clone()) {
+        match self.data.entry(key) {
             DashEntry::Occupied(mut occupied) => {
                 // Check if expired first (cheap)
                 let is_expired = occupied.get().is_expired();
@@ -472,7 +472,7 @@ impl Database {
                         // to maintain accurate memory tracking
                         if is_expired {
                             // If expired and Keep, remove it
-                            let old_size = Self::entry_size(&key, occupied.get());
+                            let old_size = Self::entry_size(occupied.key(), occupied.get());
                             occupied.remove();
                             self.memory_tracker.subtract(old_size);
                         } else {
@@ -484,7 +484,7 @@ impl Database {
                         // This is O(1) instead of O(n) for large collections
                         if is_expired {
                             // If expired, we need the full size to subtract
-                            let old_size = Self::entry_size(&key, occupied.get());
+                            let old_size = Self::entry_size(occupied.key(), occupied.get());
                             occupied.remove();
                             self.memory_tracker.subtract(old_size);
                         } else {
@@ -497,15 +497,15 @@ impl Database {
                         }
                     }
                     UpdateAction::Set(mut entry) => {
-                        let old_size = Self::entry_size(&key, occupied.get());
+                        let old_size = Self::entry_size(occupied.key(), occupied.get());
                         entry.increment_version();
-                        let new_size = Self::entry_size(&key, &entry);
+                        let new_size = Self::entry_size(occupied.key(), &entry);
                         occupied.insert(entry);
                         self.memory_tracker.subtract(old_size);
                         self.memory_tracker.add(new_size);
                     }
                     UpdateAction::Delete => {
-                        let old_size = Self::entry_size(&key, occupied.get());
+                        let old_size = Self::entry_size(occupied.key(), occupied.get());
                         occupied.remove();
                         self.memory_tracker.subtract(old_size);
                     }
@@ -517,7 +517,7 @@ impl Database {
                 match action {
                     UpdateAction::Set(mut entry) => {
                         entry.increment_version();
-                        let new_size = Self::entry_size(&key, &entry);
+                        let new_size = Self::entry_size(vacant.key(), &entry);
                         vacant.insert(entry);
                         self.memory_tracker.add(new_size);
                     }
