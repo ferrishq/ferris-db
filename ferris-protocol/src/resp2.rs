@@ -9,6 +9,10 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 /// Returns `Ok(Some(value))` if a complete value was parsed,
 /// `Ok(None)` if more data is needed,
 /// `Err(e)` if the data is invalid.
+///
+/// This parser also supports Redis inline commands (plain text format)
+/// for compatibility with tools like redis-benchmark. Inline commands
+/// are text lines like "PING\r\n" or "SET key value\r\n".
 pub fn parse(buf: &mut BytesMut) -> Result<Option<RespValue>, ProtocolError> {
     if buf.is_empty() {
         return Ok(None);
@@ -20,7 +24,11 @@ pub fn parse(buf: &mut BytesMut) -> Result<Option<RespValue>, ProtocolError> {
         b':' => parse_integer(buf),
         b'$' => parse_bulk_string(buf),
         b'*' => parse_array(buf),
-        other => Err(ProtocolError::UnknownType(other as char)),
+        _ => {
+            // Try to parse as inline command (plain text format)
+            // This is for compatibility with redis-benchmark and telnet
+            parse_inline_command(buf)
+        }
     }
 }
 
@@ -207,6 +215,117 @@ fn parse_array(buf: &mut BytesMut) -> Result<Option<RespValue>, ProtocolError> {
     }
 }
 
+/// Parse an inline command (plain text format used by redis-benchmark and telnet)
+///
+/// Inline commands are simple text lines terminated by \r\n or \n:
+/// - "PING\r\n" -> Array([BulkString("PING")])
+/// - "SET key value\r\n" -> Array([BulkString("SET"), BulkString("key"), BulkString("value")])
+///
+/// Arguments can be:
+/// - Space-separated tokens
+/// - Quoted strings with spaces (using double quotes)
+fn parse_inline_command(buf: &mut BytesMut) -> Result<Option<RespValue>, ProtocolError> {
+    // Find line ending - either \r\n or just \n
+    let line_end = if let Some(pos) = find_crlf(buf, 0) {
+        Some((pos, 2)) // Found \r\n, consume 2 bytes
+    } else if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+        Some((pos, 1)) // Found \n, consume 1 byte
+    } else {
+        None
+    };
+
+    let (end, consume) = match line_end {
+        Some(x) => x,
+        None => return Ok(None), // Need more data
+    };
+
+    // Extract the line
+    let line = buf.split_to(end + consume);
+    let line_str = std::str::from_utf8(&line[..end])
+        .map_err(|e| ProtocolError::InvalidFormat(e.to_string()))?;
+
+    // Parse the line into tokens (space-separated, with support for quoted strings)
+    let tokens = parse_inline_tokens(line_str)?;
+
+    if tokens.is_empty() {
+        // Empty line - return an error
+        return Err(ProtocolError::InvalidFormat("Empty inline command".to_string()));
+    }
+
+    // Convert tokens to RESP Array of BulkStrings (same as RESP protocol commands)
+    let args: Vec<RespValue> = tokens
+        .into_iter()
+        .map(|s| RespValue::BulkString(Bytes::from(s)))
+        .collect();
+
+    Ok(Some(RespValue::Array(args)))
+}
+
+/// Parse inline command tokens, supporting quoted strings
+fn parse_inline_tokens(line: &str) -> Result<Vec<String>, ProtocolError> {
+    let mut tokens = Vec::new();
+    let mut current_token = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' if !in_quotes => {
+                // Start of quoted string
+                in_quotes = true;
+            }
+            '"' if in_quotes => {
+                // End of quoted string
+                in_quotes = false;
+            }
+            ' ' | '\t' if !in_quotes => {
+                // Whitespace outside quotes - token separator
+                if !current_token.is_empty() {
+                    tokens.push(current_token.clone());
+                    current_token.clear();
+                }
+            }
+            '\\' if in_quotes => {
+                // Escape sequence in quoted string
+                if let Some(next_ch) = chars.next() {
+                    match next_ch {
+                        'n' => current_token.push('\n'),
+                        'r' => current_token.push('\r'),
+                        't' => current_token.push('\t'),
+                        '\\' => current_token.push('\\'),
+                        '"' => current_token.push('"'),
+                        _ => {
+                            current_token.push('\\');
+                            current_token.push(next_ch);
+                        }
+                    }
+                } else {
+                    return Err(ProtocolError::InvalidFormat(
+                        "Incomplete escape sequence".to_string(),
+                    ));
+                }
+            }
+            _ => {
+                // Regular character
+                current_token.push(ch);
+            }
+        }
+    }
+
+    // Add the last token if any
+    if !current_token.is_empty() {
+        tokens.push(current_token);
+    }
+
+    if in_quotes {
+        return Err(ProtocolError::InvalidFormat(
+            "Unclosed quoted string".to_string(),
+        ));
+    }
+
+    Ok(tokens)
+}
+
 fn find_crlf(buf: &[u8], start: usize) -> Option<usize> {
     for i in start..buf.len().saturating_sub(1) {
         if buf[i] == b'\r' && buf[i + 1] == b'\n' {
@@ -370,5 +489,96 @@ mod tests {
             let parsed = parse(&mut buf).unwrap().unwrap();
             assert_eq!(original, parsed);
         }
+    }
+
+    #[test]
+    fn test_parse_inline_command_simple() {
+        let mut buf = BytesMut::from("PING\r\n");
+        let result = parse(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            result,
+            RespValue::Array(vec![RespValue::BulkString(Bytes::from("PING"))])
+        );
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_parse_inline_command_with_args() {
+        let mut buf = BytesMut::from("SET key value\r\n");
+        let result = parse(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            result,
+            RespValue::Array(vec![
+                RespValue::BulkString(Bytes::from("SET")),
+                RespValue::BulkString(Bytes::from("key")),
+                RespValue::BulkString(Bytes::from("value")),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_inline_command_lf_only() {
+        // Support \n without \r (common in telnet)
+        let mut buf = BytesMut::from("PING\n");
+        let result = parse(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            result,
+            RespValue::Array(vec![RespValue::BulkString(Bytes::from("PING"))])
+        );
+    }
+
+    #[test]
+    fn test_parse_inline_command_with_quotes() {
+        let mut buf = BytesMut::from("SET key \"value with spaces\"\r\n");
+        let result = parse(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            result,
+            RespValue::Array(vec![
+                RespValue::BulkString(Bytes::from("SET")),
+                RespValue::BulkString(Bytes::from("key")),
+                RespValue::BulkString(Bytes::from("value with spaces")),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_inline_command_multiple_spaces() {
+        let mut buf = BytesMut::from("SET   key    value\r\n");
+        let result = parse(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            result,
+            RespValue::Array(vec![
+                RespValue::BulkString(Bytes::from("SET")),
+                RespValue::BulkString(Bytes::from("key")),
+                RespValue::BulkString(Bytes::from("value")),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_inline_command_incomplete() {
+        let mut buf = BytesMut::from("PING");
+        let result = parse(&mut buf).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_inline_tokens() {
+        assert_eq!(
+            parse_inline_tokens("PING").unwrap(),
+            vec!["PING".to_string()]
+        );
+        assert_eq!(
+            parse_inline_tokens("SET key value").unwrap(),
+            vec!["SET".to_string(), "key".to_string(), "value".to_string()]
+        );
+        assert_eq!(
+            parse_inline_tokens("SET key \"value with spaces\"").unwrap(),
+            vec![
+                "SET".to_string(),
+                "key".to_string(),
+                "value with spaces".to_string()
+            ]
+        );
     }
 }

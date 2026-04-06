@@ -5,6 +5,7 @@
 
 use crate::client::{ParityClient, ServerType};
 use crate::report::PerformanceReport;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Configuration for benchmark runs
@@ -14,8 +15,6 @@ pub struct BenchmarkConfig {
     pub warmup_iterations: usize,
     /// Number of iterations to measure
     pub iterations: usize,
-    /// Number of parallel connections (for throughput tests)
-    pub parallelism: usize,
     /// Value size in bytes for SET/GET tests
     pub value_size: usize,
 }
@@ -25,7 +24,6 @@ impl Default for BenchmarkConfig {
         Self {
             warmup_iterations: 100,
             iterations: 1000,
-            parallelism: 1,
             value_size: 100,
         }
     }
@@ -37,7 +35,6 @@ impl BenchmarkConfig {
         Self {
             warmup_iterations: 50,
             iterations: 500,
-            parallelism: 1,
             value_size: 100,
         }
     }
@@ -47,14 +44,13 @@ impl BenchmarkConfig {
         Self {
             warmup_iterations: 500,
             iterations: 10000,
-            parallelism: 1,
             value_size: 100,
         }
     }
 }
 
 /// Result from a single benchmark run
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BenchmarkResult {
     /// Server type that was benchmarked
     pub server: ServerType,
@@ -66,6 +62,24 @@ pub struct BenchmarkResult {
     pub total_time: Duration,
     /// Individual operation latencies (microseconds)
     pub latencies_us: Vec<u64>,
+    /// Cached sorted latencies (lazily computed)
+    #[allow(clippy::vec_box)]
+    sorted_latencies: std::cell::OnceCell<Vec<u64>>,
+}
+
+impl Clone for BenchmarkResult {
+    fn clone(&self) -> Self {
+        // When cloning, we create a new empty cache rather than trying to clone
+        // the OnceCell, which would lose the cached data anyway
+        Self {
+            server: self.server,
+            operation: self.operation.clone(),
+            total_ops: self.total_ops,
+            total_time: self.total_time,
+            latencies_us: self.latencies_us.clone(),
+            sorted_latencies: std::cell::OnceCell::new(),
+        }
+    }
 }
 
 impl BenchmarkResult {
@@ -83,14 +97,22 @@ impl BenchmarkResult {
         sum as f64 / self.latencies_us.len() as f64
     }
 
+    /// Get sorted latencies (cached)
+    fn sorted_latencies(&self) -> &[u64] {
+        self.sorted_latencies.get_or_init(|| {
+            let mut sorted = self.latencies_us.clone();
+            sorted.sort_unstable();
+            sorted
+        })
+    }
+
     /// Calculate percentile latency in microseconds
     #[allow(clippy::cast_sign_loss)]
     pub fn percentile_latency_us(&self, p: f64) -> f64 {
         if self.latencies_us.is_empty() {
             return 0.0;
         }
-        let mut sorted = self.latencies_us.clone();
-        sorted.sort_unstable();
+        let sorted = self.sorted_latencies();
         let idx = ((p / 100.0) * (sorted.len() - 1) as f64).round() as usize;
         sorted[idx.min(sorted.len() - 1)] as f64
     }
@@ -261,10 +283,33 @@ impl Benchmarker {
         let server = client.server_type();
 
         // Warmup
+        let mut warmup_errors = 0;
+        let total_warmup_attempts = self.config.warmup_iterations * commands.len();
         for _ in 0..self.config.warmup_iterations {
             for cmd in commands {
-                let _ = client.cmd(cmd).await;
+                if let Err(e) = client.cmd(cmd).await {
+                    warmup_errors += 1;
+                    tracing::warn!("Warmup command failed for {}: {:?}", operation, e);
+                }
             }
+        }
+
+        // If all warmup attempts failed, abort before running the actual benchmark
+        if warmup_errors == total_warmup_attempts {
+            anyhow::bail!(
+                "All {} warmup attempts failed for {}. Aborting benchmark.",
+                total_warmup_attempts,
+                operation
+            );
+        }
+
+        if warmup_errors > 0 {
+            tracing::warn!(
+                "Warmup had {} errors out of {} iterations for {}",
+                warmup_errors,
+                total_warmup_attempts,
+                operation
+            );
         }
 
         // Actual benchmark
@@ -289,6 +334,7 @@ impl Benchmarker {
             total_ops,
             total_time,
             latencies_us: latencies,
+            sorted_latencies: std::cell::OnceCell::new(),
         })
     }
 
@@ -304,12 +350,18 @@ impl Benchmarker {
         let _ = redis.cmd(&["FLUSHDB"]).await;
         let _ = ferris.cmd(&["FLUSHDB"]).await;
 
+        // Allow time for background cleanup after FLUSHDB
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         // Run Redis benchmark
         let redis_result = self.run_single(redis, operation, commands).await?;
 
         // Flush again and run ferris-db benchmark
         let _ = redis.cmd(&["FLUSHDB"]).await;
         let _ = ferris.cmd(&["FLUSHDB"]).await;
+
+        // Allow time for background cleanup after FLUSHDB
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         let ferris_result = self.run_single(ferris, operation, commands).await?;
 
@@ -492,7 +544,7 @@ impl Benchmarker {
         ferris: &mut ParityClient,
     ) -> anyhow::Result<BenchmarkComparison> {
         let value = "x".repeat(self.config.value_size);
-        // MSET with 10 keys at once
+        // MSET with 5 keys at once
         let commands: Vec<Vec<&str>> = vec![vec![
             "MSET",
             Box::leak("mset:k1".to_string().into_boxed_str()),
@@ -787,6 +839,633 @@ pub fn print_benchmark_summary(results: &[BenchmarkComparison]) {
         .red()
     };
     println!("  Throughput: {}", throughput_str);
+
+    let p50_str = if avg_p50_ratio >= 1.0 {
+        format!(
+            "ferris-db has {:.2}x lower P50 latency on average",
+            avg_p50_ratio
+        )
+        .green()
+    } else {
+        format!(
+            "ferris-db has {:.2}x higher P50 latency on average",
+            1.0 / avg_p50_ratio
+        )
+        .red()
+    };
+    println!("  Latency P50: {}", p50_str);
+
+    let p99_str = if avg_p99_ratio >= 1.0 {
+        format!(
+            "ferris-db has {:.2}x lower P99 latency on average",
+            avg_p99_ratio
+        )
+        .green()
+    } else {
+        format!(
+            "ferris-db has {:.2}x higher P99 latency on average",
+            1.0 / avg_p99_ratio
+        )
+        .red()
+    };
+    println!("  Latency P99: {}", p99_str);
+
+    println!("{}", "═".repeat(70).cyan());
+}
+
+// ============================================================================
+// Multi-threaded/Concurrent Benchmarks
+// ============================================================================
+
+/// Configuration for concurrent benchmark runs
+#[derive(Debug, Clone)]
+pub struct ConcurrentBenchmarkConfig {
+    /// Number of concurrent clients
+    pub num_clients: usize,
+    /// Number of operations per client
+    pub operations_per_client: usize,
+    /// Duration to run the benchmark (alternative to operations_per_client)
+    pub duration_secs: Option<u64>,
+    /// Value size in bytes for SET/GET tests
+    pub value_size: usize,
+}
+
+impl Default for ConcurrentBenchmarkConfig {
+    fn default() -> Self {
+        Self {
+            num_clients: 10,
+            operations_per_client: 1000,
+            duration_secs: None,
+            value_size: 100,
+        }
+    }
+}
+
+impl ConcurrentBenchmarkConfig {
+    /// Light load configuration (10 clients, 1000 ops each)
+    pub fn light() -> Self {
+        Self {
+            num_clients: 10,
+            operations_per_client: 1000,
+            duration_secs: None,
+            value_size: 100,
+        }
+    }
+
+    /// Medium load configuration (50 clients, 1000 ops each)
+    pub fn medium() -> Self {
+        Self {
+            num_clients: 50,
+            operations_per_client: 1000,
+            duration_secs: None,
+            value_size: 100,
+        }
+    }
+
+    /// Heavy load configuration (100 clients, 1000 ops each)
+    pub fn heavy() -> Self {
+        Self {
+            num_clients: 100,
+            operations_per_client: 1000,
+            duration_secs: None,
+            value_size: 100,
+        }
+    }
+
+    /// Time-based benchmark (runs for specified duration)
+    pub fn timed(num_clients: usize, duration_secs: u64) -> Self {
+        Self {
+            num_clients,
+            operations_per_client: usize::MAX, // Ignored when duration is set
+            duration_secs: Some(duration_secs),
+            value_size: 100,
+        }
+    }
+}
+
+/// Result from a concurrent benchmark run
+#[derive(Debug, Clone)]
+pub struct ConcurrentBenchmarkResult {
+    /// Server type that was benchmarked
+    pub server: ServerType,
+    /// Operation name
+    pub operation: String,
+    /// Total operations completed across all clients
+    pub total_ops: usize,
+    /// Total time for the benchmark
+    pub total_time: Duration,
+    /// Number of concurrent clients
+    pub num_clients: usize,
+    /// Individual operation latencies (microseconds) from all clients
+    pub latencies_us: Vec<u64>,
+    /// Cached sorted latencies (thread-safe)
+    sorted_latencies: std::sync::OnceLock<Vec<u64>>,
+}
+
+impl ConcurrentBenchmarkResult {
+    /// Calculate operations per second (aggregate throughput)
+    pub fn ops_per_sec(&self) -> f64 {
+        self.total_ops as f64 / self.total_time.as_secs_f64()
+    }
+
+    /// Calculate mean latency in microseconds
+    pub fn mean_latency_us(&self) -> f64 {
+        if self.latencies_us.is_empty() {
+            return 0.0;
+        }
+        let sum: u64 = self.latencies_us.iter().sum();
+        sum as f64 / self.latencies_us.len() as f64
+    }
+
+    /// Get sorted latencies (cached, thread-safe)
+    fn sorted_latencies(&self) -> &[u64] {
+        self.sorted_latencies.get_or_init(|| {
+            let mut sorted = self.latencies_us.clone();
+            sorted.sort_unstable();
+            sorted
+        })
+    }
+
+    /// Calculate percentile latency in microseconds
+    #[allow(clippy::cast_sign_loss)]
+    pub fn percentile_latency_us(&self, p: f64) -> f64 {
+        if self.latencies_us.is_empty() {
+            return 0.0;
+        }
+        let sorted = self.sorted_latencies();
+        let idx = ((p / 100.0) * (sorted.len() - 1) as f64).round() as usize;
+        sorted[idx.min(sorted.len() - 1)] as f64
+    }
+
+    /// P50 latency
+    pub fn p50_us(&self) -> f64 {
+        self.percentile_latency_us(50.0)
+    }
+
+    /// P99 latency
+    pub fn p99_us(&self) -> f64 {
+        self.percentile_latency_us(99.0)
+    }
+
+    /// P99.9 latency
+    pub fn p999_us(&self) -> f64 {
+        self.percentile_latency_us(99.9)
+    }
+
+    /// Min latency
+    pub fn min_latency_us(&self) -> f64 {
+        self.latencies_us.iter().min().copied().unwrap_or(0) as f64
+    }
+
+    /// Max latency
+    pub fn max_latency_us(&self) -> f64 {
+        self.latencies_us.iter().max().copied().unwrap_or(0) as f64
+    }
+}
+
+/// Comparison of concurrent benchmark results
+#[derive(Debug, Clone)]
+pub struct ConcurrentBenchmarkComparison {
+    /// Operation name
+    pub operation: String,
+    /// Redis results
+    pub redis: ConcurrentBenchmarkResult,
+    /// ferris-db results
+    pub ferris: ConcurrentBenchmarkResult,
+}
+
+impl ConcurrentBenchmarkComparison {
+    /// Create a new comparison
+    pub fn new(
+        redis: ConcurrentBenchmarkResult,
+        ferris: ConcurrentBenchmarkResult,
+    ) -> Self {
+        assert_eq!(redis.operation, ferris.operation);
+        Self {
+            operation: redis.operation.clone(),
+            redis,
+            ferris,
+        }
+    }
+
+    /// Throughput ratio (ferris / redis). >1.0 means ferris is faster
+    pub fn throughput_ratio(&self) -> f64 {
+        self.ferris.ops_per_sec() / self.redis.ops_per_sec()
+    }
+
+    /// Latency ratio for P50 (redis / ferris). >1.0 means ferris is faster
+    pub fn latency_p50_ratio(&self) -> f64 {
+        if self.ferris.p50_us() == 0.0 {
+            return 1.0;
+        }
+        self.redis.p50_us() / self.ferris.p50_us()
+    }
+
+    /// Latency ratio for P99 (redis / ferris). >1.0 means ferris is faster
+    pub fn latency_p99_ratio(&self) -> f64 {
+        if self.ferris.p99_us() == 0.0 {
+            return 1.0;
+        }
+        self.redis.p99_us() / self.ferris.p99_us()
+    }
+
+    /// Print a formatted comparison
+    pub fn print(&self) {
+        use colored::Colorize;
+
+        println!("\n{} ({}× concurrent clients):", self.operation.bold(), self.redis.num_clients);
+        println!("{}", "─".repeat(70));
+
+        // Aggregate Throughput
+        let ratio = self.throughput_ratio();
+        let ratio_str = if ratio >= 1.0 {
+            format!("{:.2}x faster", ratio).green()
+        } else {
+            format!("{:.2}x slower", 1.0 / ratio).red()
+        };
+        println!(
+            "  Throughput:  Redis {:>12.0} ops/s  |  ferris-db {:>12.0} ops/s  ({})",
+            self.redis.ops_per_sec(),
+            self.ferris.ops_per_sec(),
+            ratio_str
+        );
+
+        // P50 Latency
+        let p50_ratio = self.latency_p50_ratio();
+        let p50_str = if p50_ratio >= 1.0 {
+            format!("{:.2}x lower", p50_ratio).green()
+        } else {
+            format!("{:.2}x higher", 1.0 / p50_ratio).red()
+        };
+        println!(
+            "  Latency P50: Redis {:>10.1} μs     |  ferris-db {:>10.1} μs     ({})",
+            self.redis.p50_us(),
+            self.ferris.p50_us(),
+            p50_str
+        );
+
+        // P99 Latency
+        let p99_ratio = self.latency_p99_ratio();
+        let p99_str = if p99_ratio >= 1.0 {
+            format!("{:.2}x lower", p99_ratio).green()
+        } else {
+            format!("{:.2}x higher", 1.0 / p99_ratio).red()
+        };
+        println!(
+            "  Latency P99: Redis {:>10.1} μs     |  ferris-db {:>10.1} μs     ({})",
+            self.redis.p99_us(),
+            self.ferris.p99_us(),
+            p99_str
+        );
+
+        // P99.9 Latency (important for concurrent workloads)
+        let p999_ratio = if self.ferris.p999_us() == 0.0 {
+            1.0
+        } else {
+            self.redis.p999_us() / self.ferris.p999_us()
+        };
+        let p999_str = if p999_ratio >= 1.0 {
+            format!("{:.2}x lower", p999_ratio).green()
+        } else {
+            format!("{:.2}x higher", 1.0 / p999_ratio).red()
+        };
+        println!(
+            "  Latency P99.9: Redis {:>8.1} μs     |  ferris-db {:>10.1} μs     ({})",
+            self.redis.p999_us(),
+            self.ferris.p999_us(),
+            p999_str
+        );
+    }
+}
+
+/// Concurrent benchmark runner
+pub struct ConcurrentBenchmarker {
+    config: ConcurrentBenchmarkConfig,
+}
+
+impl ConcurrentBenchmarker {
+    /// Create a new concurrent benchmarker
+    pub fn new(config: ConcurrentBenchmarkConfig) -> Self {
+        Self { config }
+    }
+
+    /// Run a concurrent benchmark on a single server
+    async fn run_single(
+        &self,
+        server_type: ServerType,
+        operation: &str,
+        command_generator: impl Fn(usize) -> Vec<String> + Send + Sync + 'static,
+    ) -> anyhow::Result<ConcurrentBenchmarkResult> {
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        let num_clients = self.config.num_clients;
+        let ops_per_client = self.config.operations_per_client;
+
+        // Shared result collection (thread-safe)
+        let all_latencies = Arc::new(Mutex::new(Vec::new()));
+        let total_ops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        // Wrap command generator in Arc for sharing
+        let command_gen = Arc::new(command_generator);
+
+        let overall_start = Instant::now();
+
+        // Spawn concurrent client tasks
+        let mut tasks = Vec::new();
+
+        for client_id in 0..num_clients {
+            let latencies = Arc::clone(&all_latencies);
+            let ops_counter = Arc::clone(&total_ops);
+            let command_gen = Arc::clone(&command_gen);
+            let server_type = server_type;
+            let duration_secs = self.config.duration_secs;
+
+            let task = tokio::spawn(async move {
+                // Each client gets its own connection
+                let mut client = match server_type {
+                    ServerType::Redis => ParityClient::connect_redis().await,
+                    ServerType::Ferris => ParityClient::connect_ferris().await,
+                }?;
+
+                let mut client_latencies = Vec::new();
+                let mut ops = 0;
+
+                let start_time = Instant::now();
+
+                loop {
+                    // Check if we should stop (either by ops count or duration)
+                    if let Some(duration) = duration_secs {
+                        if start_time.elapsed().as_secs() >= duration {
+                            break;
+                        }
+                    } else if ops >= ops_per_client {
+                        break;
+                    }
+
+                    // Generate command for this client
+                    let cmd_strings = command_gen(client_id);
+                    let cmd: Vec<&str> = cmd_strings.iter().map(String::as_str).collect();
+
+                    // Execute and measure
+                    let op_start = Instant::now();
+                    match client.cmd(&cmd).await {
+                        Ok(_) => {
+                            let latency_us = op_start.elapsed().as_micros() as u64;
+                            client_latencies.push(latency_us);
+                            ops += 1;
+                        }
+                        Err(_) => {
+                            // Skip failed operations
+                        }
+                    }
+                }
+
+                // Merge this client's results into shared results
+                let mut all = latencies.lock().await;
+                all.extend(client_latencies);
+                ops_counter.fetch_add(ops, std::sync::atomic::Ordering::Relaxed);
+
+                Ok::<(), anyhow::Error>(())
+            });
+
+            tasks.push(task);
+        }
+
+        // Wait for all clients to complete
+        for task in tasks {
+            task.await??;
+        }
+
+        let total_time = overall_start.elapsed();
+        let latencies = all_latencies.lock().await.clone();
+        let total_ops = total_ops.load(std::sync::atomic::Ordering::Relaxed);
+
+        Ok(ConcurrentBenchmarkResult {
+            server: server_type,
+            operation: operation.to_string(),
+            total_ops,
+            total_time,
+            num_clients,
+            latencies_us: latencies,
+            sorted_latencies: std::sync::OnceLock::new(),
+        })
+    }
+
+    /// Run concurrent SET benchmark
+    pub async fn bench_set_concurrent(
+        &self,
+    ) -> anyhow::Result<ConcurrentBenchmarkComparison> {
+        let value = "x".repeat(self.config.value_size);
+        let value = Arc::new(value);
+
+        let command_gen = {
+            let value = Arc::clone(&value);
+            move |client_id: usize| {
+                let key = format!("bench:concurrent:set:{}:{}", client_id, rand::random::<u32>());
+                vec!["SET".to_string(), key, value.as_ref().clone()]
+            }
+        };
+
+        let redis_result = self
+            .run_single(ServerType::Redis, "SET (concurrent)", command_gen.clone())
+            .await?;
+
+        let ferris_result = self
+            .run_single(ServerType::Ferris, "SET (concurrent)", command_gen)
+            .await?;
+
+        Ok(ConcurrentBenchmarkComparison::new(
+            redis_result,
+            ferris_result,
+        ))
+    }
+
+    /// Run concurrent GET benchmark
+    pub async fn bench_get_concurrent(
+        &self,
+    ) -> anyhow::Result<ConcurrentBenchmarkComparison> {
+        // Pre-populate keys for GET
+        let num_keys = 1000;
+        let value = "x".repeat(self.config.value_size);
+
+        // Setup keys in both servers
+        let mut redis = ParityClient::connect_redis().await?;
+        let mut ferris = ParityClient::connect_ferris().await?;
+
+        for i in 0..num_keys {
+            let key = format!("bench:concurrent:get:{}", i);
+            let _ = redis.cmd(&["SET", &key, &value]).await;
+            let _ = ferris.cmd(&["SET", &key, &value]).await;
+        }
+
+        let command_gen = move |_client_id: usize| {
+            let key_id = rand::random::<usize>() % num_keys;
+            let key = format!("bench:concurrent:get:{}", key_id);
+            vec!["GET".to_string(), key]
+        };
+
+        let redis_result = self
+            .run_single(ServerType::Redis, "GET (concurrent)", command_gen.clone())
+            .await?;
+
+        let ferris_result = self
+            .run_single(ServerType::Ferris, "GET (concurrent)", command_gen)
+            .await?;
+
+        Ok(ConcurrentBenchmarkComparison::new(
+            redis_result,
+            ferris_result,
+        ))
+    }
+
+    /// Run concurrent INCR benchmark
+    pub async fn bench_incr_concurrent(
+        &self,
+    ) -> anyhow::Result<ConcurrentBenchmarkComparison> {
+        let num_counters = 100;
+
+        let command_gen = move |_client_id: usize| {
+            let counter_id = rand::random::<usize>() % num_counters;
+            let key = format!("bench:concurrent:incr:{}", counter_id);
+            vec!["INCR".to_string(), key]
+        };
+
+        let redis_result = self
+            .run_single(ServerType::Redis, "INCR (concurrent)", command_gen.clone())
+            .await?;
+
+        let ferris_result = self
+            .run_single(ServerType::Ferris, "INCR (concurrent)", command_gen)
+            .await?;
+
+        Ok(ConcurrentBenchmarkComparison::new(
+            redis_result,
+            ferris_result,
+        ))
+    }
+
+    /// Run concurrent mixed workload (50% GET, 50% SET)
+    pub async fn bench_mixed_concurrent(
+        &self,
+    ) -> anyhow::Result<ConcurrentBenchmarkComparison> {
+        let num_keys = 1000;
+        let value = Arc::new("x".repeat(self.config.value_size));
+
+        // Pre-populate some keys
+        let mut redis = ParityClient::connect_redis().await?;
+        let mut ferris = ParityClient::connect_ferris().await?;
+
+        for i in 0..num_keys {
+            let key = format!("bench:concurrent:mixed:{}", i);
+            let _ = redis.cmd(&["SET", &key, value.as_ref()]).await;
+            let _ = ferris.cmd(&["SET", &key, value.as_ref()]).await;
+        }
+
+        let command_gen = {
+            let value = Arc::clone(&value);
+            move |_client_id: usize| {
+                let key_id = rand::random::<usize>() % num_keys;
+                let key = format!("bench:concurrent:mixed:{}", key_id);
+
+                // 50% GET, 50% SET
+                if rand::random::<bool>() {
+                    vec!["GET".to_string(), key]
+                } else {
+                    vec!["SET".to_string(), key, value.as_ref().clone()]
+                }
+            }
+        };
+
+        let redis_result = self
+            .run_single(ServerType::Redis, "Mixed 50/50 (concurrent)", command_gen.clone())
+            .await?;
+
+        let ferris_result = self
+            .run_single(ServerType::Ferris, "Mixed 50/50 (concurrent)", command_gen)
+            .await?;
+
+        Ok(ConcurrentBenchmarkComparison::new(
+            redis_result,
+            ferris_result,
+        ))
+    }
+}
+
+/// Run all concurrent benchmarks
+pub async fn run_all_concurrent_benchmarks(
+    config: ConcurrentBenchmarkConfig,
+) -> anyhow::Result<Vec<ConcurrentBenchmarkComparison>> {
+    let benchmarker = ConcurrentBenchmarker::new(config);
+    let mut results = Vec::new();
+
+    println!("  Running SET (concurrent)...");
+    results.push(benchmarker.bench_set_concurrent().await?);
+
+    println!("  Running GET (concurrent)...");
+    results.push(benchmarker.bench_get_concurrent().await?);
+
+    println!("  Running INCR (concurrent)...");
+    results.push(benchmarker.bench_incr_concurrent().await?);
+
+    println!("  Running Mixed 50/50 (concurrent)...");
+    results.push(benchmarker.bench_mixed_concurrent().await?);
+
+    Ok(results)
+}
+
+/// Print summary of concurrent benchmark results
+pub fn print_concurrent_benchmark_summary(results: &[ConcurrentBenchmarkComparison]) {
+    use colored::Colorize;
+
+    println!("\n{}", "═".repeat(70).cyan());
+    println!(
+        "{}",
+        " Concurrent Performance Benchmark: Redis vs ferris-db "
+            .cyan()
+            .bold()
+    );
+    println!("{}", "═".repeat(70).cyan());
+
+    for result in results {
+        result.print();
+    }
+
+    // Overall summary
+    println!("\n{}", "═".repeat(70).cyan());
+    println!("{}", " Summary ".cyan().bold());
+    println!("{}", "─".repeat(70));
+
+    let avg_throughput_ratio: f64 = results
+        .iter()
+        .map(ConcurrentBenchmarkComparison::throughput_ratio)
+        .sum::<f64>()
+        / results.len() as f64;
+    let avg_p50_ratio: f64 = results
+        .iter()
+        .map(ConcurrentBenchmarkComparison::latency_p50_ratio)
+        .sum::<f64>()
+        / results.len() as f64;
+    let avg_p99_ratio: f64 = results
+        .iter()
+        .map(ConcurrentBenchmarkComparison::latency_p99_ratio)
+        .sum::<f64>()
+        / results.len() as f64;
+
+    let throughput_str = if avg_throughput_ratio >= 1.0 {
+        format!(
+            "ferris-db is {:.2}x faster on average",
+            avg_throughput_ratio
+        )
+        .green()
+    } else {
+        format!(
+            "ferris-db is {:.2}x slower on average",
+            1.0 / avg_throughput_ratio
+        )
+        .red()
+    };
+    println!("  Aggregate Throughput: {}", throughput_str);
 
     let p50_str = if avg_p50_ratio >= 1.0 {
         format!(

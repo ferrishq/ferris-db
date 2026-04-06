@@ -19,7 +19,10 @@
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-use parity_tests::benchmark::{print_benchmark_summary, run_all_benchmarks, BenchmarkConfig};
+use parity_tests::benchmark::{
+    print_benchmark_summary, print_concurrent_benchmark_summary, run_all_benchmarks,
+    run_all_concurrent_benchmarks, BenchmarkConfig, ConcurrentBenchmarkConfig,
+};
 use parity_tests::commands::{
     edge_cases, hash, key, list, server, set, sorted_set, sorted_set_edge, string,
 };
@@ -322,6 +325,65 @@ async fn run_benchmarks(mode: BenchmarkMode) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&bench_report)?;
     std::fs::write("benchmark-report.json", json)?;
     println!("\nBenchmark report saved to: benchmark-report.json");
+
+    // Run concurrent benchmarks
+    println!();
+    println!("Running concurrent benchmarks...");
+
+    let concurrent_config = match mode {
+        BenchmarkMode::Quick => {
+            println!("  Mode: Quick (10 clients, 500 ops/client)");
+            ConcurrentBenchmarkConfig {
+                num_clients: 10,
+                operations_per_client: 500,
+                duration_secs: None,
+                value_size: 100,
+            }
+        }
+        BenchmarkMode::Default => {
+            println!("  Mode: Default (50 clients, 1000 ops/client)");
+            ConcurrentBenchmarkConfig::medium()
+        }
+        BenchmarkMode::Thorough => {
+            println!("  Mode: Thorough (100 clients, 5000 ops/client)");
+            ConcurrentBenchmarkConfig {
+                num_clients: 100,
+                operations_per_client: 5000,
+                duration_secs: None,
+                value_size: 100,
+            }
+        }
+    };
+
+    println!("  Running concurrent benchmarks...");
+    let concurrent_results = run_all_concurrent_benchmarks(concurrent_config).await?;
+
+    // Print concurrent results
+    print_concurrent_benchmark_summary(&concurrent_results);
+
+    // Save concurrent benchmark results to JSON
+    let concurrent_report: Vec<_> = concurrent_results
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "operation": r.operation,
+                "num_clients": r.redis.num_clients,
+                "redis_ops_per_sec": r.redis.ops_per_sec(),
+                "ferris_ops_per_sec": r.ferris.ops_per_sec(),
+                "throughput_ratio": r.throughput_ratio(),
+                "redis_p50_us": r.redis.p50_us(),
+                "ferris_p50_us": r.ferris.p50_us(),
+                "latency_p50_ratio": r.latency_p50_ratio(),
+                "redis_p99_us": r.redis.p99_us(),
+                "ferris_p99_us": r.ferris.p99_us(),
+                "latency_p99_ratio": r.latency_p99_ratio(),
+            })
+        })
+        .collect();
+
+    let concurrent_json = serde_json::to_string_pretty(&concurrent_report)?;
+    std::fs::write("concurrent-benchmark-report.json", concurrent_json)?;
+    println!("\nConcurrent benchmark report saved to: concurrent-benchmark-report.json");
 
     Ok(())
 }
