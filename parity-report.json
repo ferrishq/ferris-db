@@ -1,9 +1,697 @@
 {
-  "timestamp": "1774834016",
+  "timestamp": "1775440796",
   "total_tests": 290,
   "passed": 290,
   "failed": 0,
   "categories": {
+    "Hash Commands": {
+      "name": "Hash Commands",
+      "tests": [
+        {
+          "name": "HSET/HGET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSET multiple fields",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HGET nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HMSET/HMGET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HMGET with missing fields",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HGETALL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HGETALL empty/nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HDEL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HDEL multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HEXISTS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HLEN nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HKEYS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HVALS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HINCRBY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HINCRBY new field",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HINCRBYFLOAT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSETNX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSTRLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "HSET on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 20,
+      "failed": 0,
+      "duration_ms": 0
+    },
+    "List Commands": {
+      "name": "List Commands",
+      "tests": [
+        {
+          "name": "LPUSH/RPUSH",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOP/RPOP",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOP/RPOP with count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOP/RPOP empty list",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LRANGE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LRANGE negative indices",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LRANGE out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LLEN",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LLEN nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX negative",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINDEX out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LSET",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LSET out of bounds",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LREM positive count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LREM negative count",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LREM zero count (all)",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINSERT BEFORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINSERT AFTER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LINSERT pivot not found",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LTRIM",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LTRIM negative indices",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOS not found",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LPOS with RANK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "LMOVE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LPUSHX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "RPUSHX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "LPUSH on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 29,
+      "failed": 0,
+      "duration_ms": 3
+    },
+    "Key Commands": {
+      "name": "Key Commands",
+      "tests": [
+        {
+          "name": "DEL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DEL multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DEL nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXISTS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXISTS multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIRE/TTL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIRE nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TTL no expire",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PEXPIRE/PTTL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "EXPIREAT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PERSIST",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PERSIST no TTL",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE string",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE list",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE set",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE hash",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE zset",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TYPE nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "KEYS *",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "KEYS pattern",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAME",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAME overwrite",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAME nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAMENX",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "RENAMENX exists",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "COPY",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "COPY REPLACE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "UNLINK",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TOUCH",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 29,
+      "failed": 0,
+      "duration_ms": 0
+    },
+    "Set Commands": {
+      "name": "Set Commands",
+      "tests": [
+        {
+          "name": "SADD",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SADD multiple",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SADD duplicates",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SREM",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMEMBERS",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SISMEMBER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMISMEMBER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SCARD",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SCARD nonexistent",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SINTER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SUNION",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SDIFF",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SINTERSTORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SUNIONSTORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SDIFFSTORE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SPOP",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SRANDMEMBER",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMOVE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SMOVE nonexistent member",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SADD on wrong type",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 20,
+      "failed": 0,
+      "duration_ms": 0
+    },
+    "Server Commands": {
+      "name": "Server Commands",
+      "tests": [
+        {
+          "name": "PING",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "PING with message",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "ECHO",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SELECT",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "SELECT invalid",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DBSIZE",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DBSIZE empty",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "FLUSHDB",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "TIME",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        },
+        {
+          "name": "DEBUG SLEEP",
+          "passed": true,
+          "error": null,
+          "duration_ms": 0
+        }
+      ],
+      "passed": 10,
+      "failed": 0,
+      "duration_ms": 0
+    },
     "Edge Cases & Boundary Conditions": {
       "name": "Edge Cases & Boundary Conditions",
       "tests": [
@@ -221,7 +909,7 @@
           "name": "Many list elements",
           "passed": true,
           "error": null,
-          "duration_ms": 10
+          "duration_ms": 6
         },
         {
           "name": "Many set members",
@@ -233,7 +921,7 @@
           "name": "Many hash fields",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "Many zset members",
@@ -245,7 +933,7 @@
           "name": "EXPIRE with zero",
           "passed": true,
           "error": null,
-          "duration_ms": 101
+          "duration_ms": 102
         },
         {
           "name": "EXPIRE with negative",
@@ -269,24 +957,24 @@
           "name": "KEYS complex pattern",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "Delete during operations",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "Overwrite with different type",
           "passed": true,
           "error": null,
-          "duration_ms": 1
+          "duration_ms": 3
         }
       ],
       "passed": 46,
       "failed": 0,
-      "duration_ms": 165
+      "duration_ms": 167
     },
     "Sorted Set Edge Cases": {
       "name": "Sorted Set Edge Cases",
@@ -295,37 +983,37 @@
           "name": "ZADD with +inf score",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZADD with -inf score",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZADD with zero score",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZADD with negative scores",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZADD float precision",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZADD very small float",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZADD very large float",
@@ -337,7 +1025,7 @@
           "name": "ZADD score ties (lexicographic)",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZINCRBY toward infinity",
@@ -649,7 +1337,7 @@
           "name": "ZUNIONSTORE basic",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "ZUNIONSTORE WEIGHTS",
@@ -762,189 +1450,7 @@
       ],
       "passed": 78,
       "failed": 0,
-      "duration_ms": 0
-    },
-    "List Commands": {
-      "name": "List Commands",
-      "tests": [
-        {
-          "name": "LPUSH/RPUSH",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPOP/RPOP",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPOP/RPOP with count",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPOP/RPOP empty list",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LRANGE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LRANGE negative indices",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LRANGE out of bounds",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LLEN",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LLEN nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LINDEX",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LINDEX negative",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LINDEX out of bounds",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LSET",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LSET out of bounds",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LREM positive count",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LREM negative count",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LREM zero count (all)",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LINSERT BEFORE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LINSERT AFTER",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LINSERT pivot not found",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LTRIM",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LTRIM negative indices",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPOS",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPOS not found",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPOS with RANK",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LMOVE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPUSHX",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "RPUSHX",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "LPUSH on wrong type",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        }
-      ],
-      "passed": 29,
-      "failed": 0,
-      "duration_ms": 0
+      "duration_ms": 8
     },
     "Sorted Set Commands": {
       "name": "Sorted Set Commands",
@@ -1092,384 +1598,6 @@
       "failed": 0,
       "duration_ms": 0
     },
-    "Hash Commands": {
-      "name": "Hash Commands",
-      "tests": [
-        {
-          "name": "HSET/HGET",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HSET multiple fields",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HGET nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HMSET/HMGET",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HMGET with missing fields",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HGETALL",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HGETALL empty/nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HDEL",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HDEL multiple",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HEXISTS",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HLEN",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HLEN nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HKEYS",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HVALS",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HINCRBY",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HINCRBY new field",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HINCRBYFLOAT",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HSETNX",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HSTRLEN",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "HSET on wrong type",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        }
-      ],
-      "passed": 20,
-      "failed": 0,
-      "duration_ms": 0
-    },
-    "Key Commands": {
-      "name": "Key Commands",
-      "tests": [
-        {
-          "name": "DEL",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "DEL multiple",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "DEL nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "EXISTS",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "EXISTS multiple",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "EXPIRE/TTL",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "EXPIRE nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TTL no expire",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "PEXPIRE/PTTL",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "EXPIREAT",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "PERSIST",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "PERSIST no TTL",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TYPE string",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TYPE list",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TYPE set",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TYPE hash",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TYPE zset",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TYPE nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "KEYS *",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "KEYS pattern",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "RENAME",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "RENAME overwrite",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "RENAME nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "RENAMENX",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "RENAMENX exists",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "COPY",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "COPY REPLACE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "UNLINK",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TOUCH",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        }
-      ],
-      "passed": 29,
-      "failed": 0,
-      "duration_ms": 0
-    },
-    "Server Commands": {
-      "name": "Server Commands",
-      "tests": [
-        {
-          "name": "PING",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "PING with message",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "ECHO",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SELECT",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SELECT invalid",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "DBSIZE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "DBSIZE empty",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "FLUSHDB",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "TIME",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "DEBUG SLEEP",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        }
-      ],
-      "passed": 10,
-      "failed": 0,
-      "duration_ms": 0
-    },
     "String Commands": {
       "name": "String Commands",
       "tests": [
@@ -1477,7 +1605,7 @@
           "name": "SET/GET basic",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "GET nonexistent key",
@@ -1507,7 +1635,7 @@
           "name": "SET NX",
           "passed": true,
           "error": null,
-          "duration_ms": 1
+          "duration_ms": 0
         },
         {
           "name": "SET XX",
@@ -1531,7 +1659,7 @@
           "name": "SETEX",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "PSETEX",
@@ -1543,7 +1671,7 @@
           "name": "GETEX EX",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "GETEX PERSIST",
@@ -1579,7 +1707,7 @@
           "name": "MSETNX fail (key exists)",
           "passed": true,
           "error": null,
-          "duration_ms": 1
+          "duration_ms": 0
         },
         {
           "name": "INCR",
@@ -1669,7 +1797,7 @@
           "name": "SETRANGE with padding",
           "passed": true,
           "error": null,
-          "duration_ms": 0
+          "duration_ms": 1
         },
         {
           "name": "GET on wrong type",
@@ -1686,137 +1814,9 @@
       ],
       "passed": 35,
       "failed": 0,
-      "duration_ms": 3
-    },
-    "Set Commands": {
-      "name": "Set Commands",
-      "tests": [
-        {
-          "name": "SADD",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SADD multiple",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SADD duplicates",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SREM",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SMEMBERS",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SISMEMBER",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SMISMEMBER",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SCARD",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SCARD nonexistent",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SINTER",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SUNION",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SDIFF",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SINTERSTORE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SUNIONSTORE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SDIFFSTORE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SPOP",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SRANDMEMBER",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SMOVE",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SMOVE nonexistent member",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        },
-        {
-          "name": "SADD on wrong type",
-          "passed": true,
-          "error": null,
-          "duration_ms": 0
-        }
-      ],
-      "passed": 20,
-      "failed": 0,
-      "duration_ms": 0
+      "duration_ms": 5
     }
   },
   "performance": null,
-  "duration_ms": 292
+  "duration_ms": 282
 }

@@ -787,8 +787,8 @@ pub fn zrange(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         _ => return Err(CommandError::WrongType),
     };
 
-    // Collect results based on mode
-    let results: Vec<(Bytes, f64)> = if byscore {
+    // Collect results based on mode (using references to avoid cloning)
+    let results: Vec<(&Bytes, f64)> = if byscore {
         let (min_arg, max_arg) = if rev {
             (&args[2], &args[1])
         } else {
@@ -797,22 +797,22 @@ pub fn zrange(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         let min_bound = parse_score_bound(min_arg)?;
         let max_bound = parse_score_bound(max_arg)?;
 
-        let all: Vec<(Bytes, f64)> = if rev {
+        let all: Vec<(&Bytes, f64)> = if rev {
             members_map
                 .keys()
                 .rev()
                 .filter(|(s, _)| min_bound.includes(s.0) && max_bound.includes_upper(s.0))
-                .map(|(s, m)| (m.clone(), s.0))
+                .map(|(s, m)| (m, s.0))
                 .collect()
         } else {
             members_map
                 .keys()
                 .filter(|(s, _)| min_bound.includes(s.0) && max_bound.includes_upper(s.0))
-                .map(|(s, m)| (m.clone(), s.0))
+                .map(|(s, m)| (m, s.0))
                 .collect()
         };
 
-        apply_limit(all, limit_offset, limit_count)
+        apply_limit_ref(all, limit_offset, limit_count)
     } else if bylex {
         let (min_arg, max_arg) = if rev {
             (&args[2], &args[1])
@@ -822,22 +822,22 @@ pub fn zrange(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
         let min_lex = parse_lex_bound(min_arg)?;
         let max_lex = parse_lex_bound(max_arg)?;
 
-        let all: Vec<(Bytes, f64)> = if rev {
+        let all: Vec<(&Bytes, f64)> = if rev {
             members_map
                 .keys()
                 .rev()
                 .filter(|(_, m)| lex_gte(m, &min_lex) && lex_lte(m, &max_lex))
-                .map(|(s, m)| (m.clone(), s.0))
+                .map(|(s, m)| (m, s.0))
                 .collect()
         } else {
             members_map
                 .keys()
                 .filter(|(_, m)| lex_gte(m, &min_lex) && lex_lte(m, &max_lex))
-                .map(|(s, m)| (m.clone(), s.0))
+                .map(|(s, m)| (m, s.0))
                 .collect()
         };
 
-        apply_limit(all, limit_offset, limit_count)
+        apply_limit_ref(all, limit_offset, limit_count)
     } else {
         // Default: by rank (integer indices)
         let start = parse_int(&args[1])?;
@@ -860,19 +860,19 @@ pub fn zrange(ctx: &mut CommandContext, args: &[RespValue]) -> CommandResult {
                 .rev()
                 .skip(start)
                 .take(stop - start + 1)
-                .map(|(s, m)| (m.clone(), s.0))
+                .map(|(s, m)| (m, s.0))
                 .collect()
         } else {
             members_map
                 .keys()
                 .skip(start)
                 .take(stop - start + 1)
-                .map(|(s, m)| (m.clone(), s.0))
+                .map(|(s, m)| (m, s.0))
                 .collect()
         }
     };
 
-    Ok(build_array_response(&results, withscores))
+    Ok(build_array_response_ref(&results, withscores))
 }
 
 fn normalize_index(idx: i64, len: i64) -> i64 {
@@ -892,10 +892,30 @@ fn apply_limit(v: Vec<(Bytes, f64)>, offset: Option<i64>, count: Option<i64>) ->
     }
 }
 
+fn apply_limit_ref(v: Vec<(&Bytes, f64)>, offset: Option<i64>, count: Option<i64>) -> Vec<(&Bytes, f64)> {
+    let off = offset.unwrap_or(0).max(0) as usize;
+    match count {
+        Some(c) if c >= 0 => v.into_iter().skip(off).take(c as usize).collect(),
+        Some(_) => v.into_iter().skip(off).collect(),
+        None => v.into_iter().skip(off).collect(),
+    }
+}
+
 fn build_array_response(items: &[(Bytes, f64)], withscores: bool) -> RespValue {
     let mut result = Vec::new();
     for (member, score) in items {
         result.push(RespValue::BulkString(member.clone()));
+        if withscores {
+            result.push(RespValue::BulkString(Bytes::from(format_score(*score))));
+        }
+    }
+    RespValue::Array(result)
+}
+
+fn build_array_response_ref(items: &[(&Bytes, f64)], withscores: bool) -> RespValue {
+    let mut result = Vec::new();
+    for (member, score) in items {
+        result.push(RespValue::BulkString((*member).clone()));
         if withscores {
             result.push(RespValue::BulkString(Bytes::from(format_score(*score))));
         }
